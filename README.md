@@ -47,7 +47,8 @@ Pad 优先的 Flutter SSH / Telnet / SFTP / FTP 终端客户端。
 4. **M2** — SFTP / TELNET / FTP
 5. **M3** — Pad 布局 / 键盘打磨
 6. **M5** — 发版打磨
-7. **v0.5.3** — 连接共享（多 shell + SFTP 同会话）← 当前
+7. **v0.5.3** — 连接共享（多 shell + SFTP 同会话）
+8. **v0.5.4** — 主机卡片资源状态（CPU / MEM / NET / DISK，共享 SSH exec）← 当前
 
 ## Pad 布局与键盘（M3）
 
@@ -61,6 +62,19 @@ Pad 优先的 Flutter SSH / Telnet / SFTP / FTP 终端客户端。
   - Metrics 变化：重建 fit 行列并触发 PTY `resize`。
   - 软键盘：`TextInputType.visiblePassword`（少联想 / 智能标点）。
   - 检测到硬件键盘时可隐藏 ExtraKeys。
+
+
+## 主机资源状态（v0.5.4）
+
+已连接的 **SSH / SFTP** 主机卡片显示 ServerBox 风格紧凑条：
+
+- **CPU %**（`/proc/stat` 两次采样差分）
+- **MEM** used/total（`/proc/meminfo` MemTotal − MemAvailable）
+- **NET** ↓rx ↑tx B/s（`/proc/net/dev` 差分）
+- **DISK** `/` used/total（`df -Pk /`，可选）
+- load average
+
+采样：每 ~2.5s 对共享 `SshConnectionHub` 客户端 `exec` 一次（**不**另开 SSH）；应用进后台停表，保活不变；Telnet/FTP 不显示。
 
 ## 如何运行
 

@@ -9,6 +9,9 @@ import '../theme.dart';
 import '../host_editor.dart';
 import '../placeholders.dart';
 import '../widgets/session_status.dart';
+import '../widgets/host_resource_strip.dart';
+import '../../core/status/host_status_monitor.dart';
+import '../../core/status/host_resource_stats.dart';
 import 'pad_breakpoints.dart';
 
 enum PadSection { hosts, terminal, files, settings }
@@ -32,6 +35,7 @@ class LeftPane extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final hosts = ref.watch(hostListProvider);
     final mgr = ref.watch(sessionManagerProvider);
+    final statusMonitor = ref.watch(hostStatusMonitorProvider);
     final themeMode = ref.watch(themeModeProvider);
     final scheme = Theme.of(context).colorScheme;
 
@@ -115,6 +119,7 @@ class LeftPane extends ConsumerWidget {
                     host: h,
                     sessionPhase: _phaseForHost(mgr, h),
                     selected: _isSelected(mgr, h),
+                    resourceStats: _statsForHost(mgr, h, statusMonitor),
                     onTap: () => onConnectHost(h),
                     onEdit: () {
                       Navigator.of(context).push(
@@ -229,6 +234,20 @@ class LeftPane extends ConsumerWidget {
     final f = mgr.activeFile;
     if (f != null && f.profile.id == h.id) return true;
     return false;
+  }
+
+  static HostResourceStats? _statsForHost(
+    SessionManager mgr,
+    HostProfile h,
+    HostStatusMonitor monitor,
+  ) {
+    final isSshFamily =
+        h.protocol == HostProtocol.ssh || h.protocol == HostProtocol.sftp;
+    if (!isSshFamily) return null;
+    if (!mgr.sshHub.isConnected(h.id)) return null;
+    final phase = _phaseForHost(mgr, h);
+    if (!SessionStatusStyle.isLive(phase)) return null;
+    return monitor.statsOf(h.id);
   }
 }
 
@@ -383,11 +402,13 @@ class _HostCard extends StatelessWidget {
     required this.onEdit,
     required this.onDelete,
     required this.onCloseSession,
+    this.resourceStats,
   });
 
   final HostProfile host;
   final SessionPhase? sessionPhase;
   final bool selected;
+  final HostResourceStats? resourceStats;
   final VoidCallback onTap;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
@@ -473,6 +494,22 @@ class _HostCard extends StatelessWidget {
                                   ),
                                 ),
                               ],
+                              if (resourceStats != null && resourceStats!.ready)
+                                HostResourceStrip(stats: resourceStats!)
+                              else if (live &&
+                                  (host.protocol == HostProtocol.ssh ||
+                                      host.protocol == HostProtocol.sftp))
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 2),
+                                  child: Text(
+                                    'CPU — · MEM — · NET —',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      height: 1.1,
+                                      color: scheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                ),
                             ],
                           ),
                         ),

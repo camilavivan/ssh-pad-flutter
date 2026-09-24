@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'core/keepalive/keepalive_controller.dart';
+import 'core/status/host_status_monitor.dart';
 import 'core/security/host_key_store.dart';
 import 'core/security/host_key_verifier.dart';
 import 'core/ssh/ssh_connector.dart';
@@ -60,6 +61,7 @@ class _SshPadAppState extends ConsumerState<SshPadApp> {
   @override
   Widget build(BuildContext context) {
     ref.watch(keepAliveControllerProvider);
+    ref.watch(hostStatusMonitorProvider);
     ref.watch(hostKeyVerifierProvider);
     final themeMode = ref.watch(themeModeProvider);
 
