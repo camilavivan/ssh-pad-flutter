@@ -9,6 +9,7 @@ import '../../core/session/terminal_session.dart';
 import '../../data/host_profile.dart';
 import '../files/files_page.dart';
 import '../pad/pad_breakpoints.dart';
+import '../widgets/session_status.dart';
 import 'extra_keys.dart';
 import 'hardware_keyboard_handler.dart';
 
@@ -77,8 +78,6 @@ class _TerminalPageState extends ConsumerState<TerminalPage>
 
   @override
   void didChangeMetrics() {
-    // Keyboard plug / rotation: re-fit rows/cols (TerminalView autoResize) +
-    // force a rebuild so PTY onResize fires with new dimensions.
     final view = View.of(context);
     final size = view.physicalSize;
     if (_lastViewSize != size) {
@@ -96,8 +95,6 @@ class _TerminalPageState extends ConsumerState<TerminalPage>
   void _nudgeTerminalResize() {
     final active = ref.read(sessionManagerProvider).active;
     if (active == null) return;
-    // Re-assert current size to trigger dartssh2 / telnet NAWS when layout
-    // settled after a metrics change.
     final t = active.terminal;
     final w = t.viewWidth;
     final h = t.viewHeight;
@@ -158,6 +155,95 @@ class _TerminalPageState extends ConsumerState<TerminalPage>
     }
   }
 
+  Widget _toolbar(BuildContext context, TerminalSession? active) {
+    final scheme = Theme.of(context).colorScheme;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return Material(
+      color: dark ? const Color(0xFF161B22) : scheme.surfaceContainerHighest,
+      child: SafeArea(
+        bottom: false,
+        child: Container(
+          height: PadBreakpoints.minTap,
+          decoration: BoxDecoration(
+            border: Border(
+              bottom: BorderSide(color: scheme.outline.withValues(alpha: 0.55)),
+            ),
+          ),
+          child: Row(
+            children: [
+              const SizedBox(width: 10),
+              if (active != null) ...[
+                StatusDot(phase: active.phase, size: 8),
+                const SizedBox(width: 8),
+              ],
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      active?.title ?? '终端',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    if (active != null)
+                      Text(
+                        SessionStatusStyle.label(active.phase) +
+                            (active.phase == SessionPhase.connected
+                                ? ' · 保活中'
+                                : ''),
+                        style: TextStyle(
+                          fontSize: 10,
+                          height: 1.1,
+                          color: SessionStatusStyle.color(active.phase),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              if (active != null) ...[
+                IconButton(
+                  tooltip: '打开文件 (SFTP)',
+                  icon: const Icon(Icons.folder_open_outlined, size: 20),
+                  constraints: const BoxConstraints(
+                    minWidth: PadBreakpoints.minTap,
+                    minHeight: PadBreakpoints.minTap,
+                  ),
+                  onPressed: _openFiles,
+                ),
+                IconButton(
+                  tooltip: '断开当前',
+                  icon: const Icon(Icons.link_off, size: 20),
+                  constraints: const BoxConstraints(
+                    minWidth: PadBreakpoints.minTap,
+                    minHeight: PadBreakpoints.minTap,
+                  ),
+                  onPressed: _disconnectActive,
+                ),
+              ],
+              PopupMenuButton<String>(
+                tooltip: '更多',
+                onSelected: (v) async {
+                  if (v == 'all') await _disconnectAll();
+                  if (v == 'ime') await _clearImeComposition();
+                  if (v == 'files') await _openFiles();
+                },
+                itemBuilder: (_) => const [
+                  PopupMenuItem(value: 'files', child: Text('打开文件 (SFTP)')),
+                  PopupMenuItem(value: 'ime', child: Text('清除输入法组字')),
+                  PopupMenuItem(value: 'all', child: Text('断开全部会话')),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final mgr = ref.watch(sessionManagerProvider);
@@ -172,20 +258,43 @@ class _TerminalPageState extends ConsumerState<TerminalPage>
           );
 
     final body = active == null
-        ? const Center(child: Text('选择主机连接，或等待会话准备…'))
+        ? Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.terminal,
+                  size: 40,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  '选择左侧主机连接',
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'SSH / TELNET 会话会出现在这里',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+          )
         : Column(
             children: [
-              _StatusBanner(session: active),
               Expanded(
-                child: TerminalView(
-                  active.terminal,
-                  focusNode: _terminalFocus,
-                  autofocus: true,
-                  backgroundOpacity: 1,
-                  padding: const EdgeInsets.all(4),
-                  keyboardType: kTerminalKeyboardType,
-                  deleteDetection: true,
-                  hardwareKeyboardOnly: _hwKeyboard,
+                child: ColoredBox(
+                  color: const Color(0xFF0D1117),
+                  child: TerminalView(
+                    active.terminal,
+                    focusNode: _terminalFocus,
+                    autofocus: true,
+                    backgroundOpacity: 1,
+                    padding: const EdgeInsets.fromLTRB(6, 4, 6, 4),
+                    keyboardType: kTerminalKeyboardType,
+                    deleteDetection: true,
+                    hardwareKeyboardOnly: _hwKeyboard,
+                  ),
                 ),
               ),
               ExtraKeysBar(
@@ -196,61 +305,12 @@ class _TerminalPageState extends ConsumerState<TerminalPage>
             ],
           );
 
-    final actions = <Widget>[
-      if (active != null)
-        IconButton(
-          tooltip: '断开当前',
-          icon: const Icon(Icons.link_off),
-          constraints: const BoxConstraints(
-            minWidth: PadBreakpoints.minTap,
-            minHeight: PadBreakpoints.minTap,
-          ),
-          onPressed: _disconnectActive,
-        ),
-      PopupMenuButton<String>(
-        onSelected: (v) async {
-          if (v == 'all') await _disconnectAll();
-          if (v == 'ime') await _clearImeComposition();
-          if (v == 'files') await _openFiles();
-        },
-        itemBuilder: (_) => const [
-          PopupMenuItem(value: 'files', child: Text('打开文件 (SFTP)')),
-          PopupMenuItem(value: 'ime', child: Text('清除输入法组字')),
-          PopupMenuItem(value: 'all', child: Text('断开全部会话')),
-        ],
-      ),
-    ];
-
     if (widget.embedded) {
       return Column(
         children: [
-          Material(
-            color: Theme.of(context).colorScheme.surfaceContainerHighest,
-            child: SafeArea(
-              bottom: false,
-              child: SizedBox(
-                height: PadBreakpoints.minTap,
-                child: Row(
-                  children: [
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        active?.title ?? '终端',
-                        style: Theme.of(context).textTheme.titleMedium,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    ...actions,
-                  ],
-                ),
-              ),
-            ),
-          ),
-          if (mgr.sessions.length > 1)
-            SizedBox(
-              height: 40,
-              child: _SessionTabBar(manager: mgr),
-            ),
+          _toolbar(context, active),
+          if (mgr.sessions.isNotEmpty)
+            _SessionTabBar(manager: mgr),
           Expanded(child: body),
         ],
       );
@@ -259,44 +319,34 @@ class _TerminalPageState extends ConsumerState<TerminalPage>
     return Scaffold(
       appBar: AppBar(
         title: Text(active?.title ?? '终端'),
-        actions: actions,
-        bottom: mgr.sessions.length > 1
+        actions: [
+          if (active != null)
+            IconButton(
+              tooltip: '断开当前',
+              icon: const Icon(Icons.link_off),
+              onPressed: _disconnectActive,
+            ),
+          PopupMenuButton<String>(
+            onSelected: (v) async {
+              if (v == 'all') await _disconnectAll();
+              if (v == 'ime') await _clearImeComposition();
+              if (v == 'files') await _openFiles();
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'files', child: Text('打开文件 (SFTP)')),
+              PopupMenuItem(value: 'ime', child: Text('清除输入法组字')),
+              PopupMenuItem(value: 'all', child: Text('断开全部会话')),
+            ],
+          ),
+        ],
+        bottom: mgr.sessions.isNotEmpty
             ? PreferredSize(
-                preferredSize: const Size.fromHeight(40),
+                preferredSize: const Size.fromHeight(36),
                 child: _SessionTabBar(manager: mgr),
               )
             : null,
       ),
       body: body,
-    );
-  }
-}
-
-class _StatusBanner extends StatelessWidget {
-  const _StatusBanner({required this.session});
-
-  final TerminalSession session;
-
-  @override
-  Widget build(BuildContext context) {
-    final (label, color) = switch (session.phase) {
-      SessionPhase.connecting => ('连接中…', Colors.amber),
-      SessionPhase.connected => ('已连接（保活中）', Colors.green),
-      SessionPhase.disconnected => ('已断开', Colors.grey),
-      SessionPhase.error => (
-          '错误: ${session.errorMessage ?? ""}',
-          Theme.of(context).colorScheme.error,
-        ),
-    };
-    return Material(
-      color: color.withValues(alpha: 0.15),
-      child: SizedBox(
-        width: double.infinity,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-          child: Text(label, style: TextStyle(color: color, fontSize: 12)),
-        ),
-      ),
     );
   }
 }
@@ -308,28 +358,83 @@ class _SessionTabBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 40,
+    final scheme = Theme.of(context).colorScheme;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      height: 36,
+      decoration: BoxDecoration(
+        color: dark ? const Color(0xFF0D1117) : scheme.surfaceContainerHigh,
+        border: Border(
+          bottom: BorderSide(color: scheme.outline.withValues(alpha: 0.45)),
+        ),
+      ),
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
         itemCount: manager.sessions.length,
         itemBuilder: (context, i) {
           final s = manager.sessions[i];
           final selected = s.id == manager.activeId;
           return Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
-            child: InputChip(
-              selected: selected,
-              label: Text(s.title, overflow: TextOverflow.ellipsis),
-              onPressed: () => manager.setActive(s.id),
-              onDeleted: () async {
-                await manager.close(s.id);
-                if (context.mounted &&
-                    manager.sessions.isEmpty &&
-                    Navigator.of(context).canPop()) {
-                  Navigator.of(context).maybePop();
-                }
-              },
+            padding: const EdgeInsets.only(right: 4),
+            child: Material(
+              color: selected
+                  ? scheme.primary.withValues(alpha: 0.16)
+                  : (dark ? const Color(0xFF21262D) : scheme.surface),
+              borderRadius: BorderRadius.circular(6),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(6),
+                onTap: () => manager.setActive(s.id),
+                child: Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                      color: selected
+                          ? scheme.primary.withValues(alpha: 0.55)
+                          : scheme.outline.withValues(alpha: 0.4),
+                    ),
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      StatusDot(phase: s.phase, size: 6),
+                      const SizedBox(width: 6),
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 140),
+                        child: Text(
+                          s.title,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight:
+                                selected ? FontWeight.w700 : FontWeight.w500,
+                            color: selected
+                                ? scheme.primary
+                                : scheme.onSurface,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 2),
+                      InkWell(
+                        onTap: () async {
+                          await manager.close(s.id);
+                          if (context.mounted &&
+                              manager.sessions.isEmpty &&
+                              Navigator.of(context).canPop()) {
+                            Navigator.of(context).maybePop();
+                          }
+                        },
+                        borderRadius: BorderRadius.circular(10),
+                        child: const Padding(
+                          padding: EdgeInsets.all(4),
+                          child: Icon(Icons.close, size: 14),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ),
           );
         },

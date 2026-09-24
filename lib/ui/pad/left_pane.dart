@@ -8,11 +8,12 @@ import '../../data/host_store.dart';
 import '../theme.dart';
 import '../host_editor.dart';
 import '../placeholders.dart';
+import '../widgets/session_status.dart';
 import 'pad_breakpoints.dart';
 
 enum PadSection { hosts, terminal, files, settings }
 
-/// Left / host list pane: node cards, live sessions, section chips.
+/// Left / host list pane: denser ServerBox-like node cards + live sessions.
 class LeftPane extends ConsumerWidget {
   const LeftPane({
     super.key,
@@ -35,7 +36,7 @@ class LeftPane extends ConsumerWidget {
     final scheme = Theme.of(context).colorScheme;
 
     return Material(
-      color: scheme.surface,
+      color: scheme.surfaceContainerHighest.withValues(alpha: 0.55),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -51,41 +52,63 @@ class LeftPane extends ConsumerWidget {
             compact: compactHeader,
           ),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: Wrap(
-              spacing: 4,
+            padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+            child: Row(
               children: [
-                _NavChip(
-                  label: '终端',
-                  selected: section == PadSection.terminal,
-                  onTap: () => onSection(PadSection.terminal),
+                Expanded(
+                  child: _SegButton(
+                    label: '终端',
+                    icon: Icons.terminal,
+                    selected: section == PadSection.terminal,
+                    onTap: () => onSection(PadSection.terminal),
+                  ),
                 ),
-                _NavChip(
-                  label: '文件',
-                  selected: section == PadSection.files,
-                  enabled: mgr.files.isNotEmpty ||
-                      mgr.active?.profile.protocol == HostProtocol.ssh,
-                  onTap: () => onSection(PadSection.files),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: _SegButton(
+                    label: '文件',
+                    icon: Icons.folder_outlined,
+                    selected: section == PadSection.files,
+                    enabled: mgr.files.isNotEmpty ||
+                        mgr.active?.profile.protocol == HostProtocol.ssh,
+                    onTap: () => onSection(PadSection.files),
+                  ),
                 ),
-                _NavChip(
-                  label: '主机',
-                  selected: section == PadSection.hosts,
-                  onTap: () => onSection(PadSection.hosts),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: _SegButton(
+                    label: '主机',
+                    icon: Icons.dns_outlined,
+                    selected: section == PadSection.hosts,
+                    onTap: () => onSection(PadSection.hosts),
+                  ),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 8),
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.fromLTRB(10, 0, 10, 16),
+              padding: const EdgeInsets.fromLTRB(8, 4, 8, 12),
               children: [
-                Text('节点', style: Theme.of(context).textTheme.labelLarge),
-                const SizedBox(height: 6),
+                SectionHeading(
+                  '节点',
+                  trailing: Text(
+                    '${hosts.length}',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                  ),
+                ),
                 if (hosts.isEmpty && mgr.sessions.isEmpty)
-                  Text(
-                    '还没有保存的主机',
-                    style: Theme.of(context).textTheme.bodySmall,
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    child: Text(
+                      '还没有保存的主机\n点下方「新建主机」开始',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
+                    ),
                   ),
                 for (final h in hosts) ...[
                   _HostCard(
@@ -105,14 +128,26 @@ class LeftPane extends ConsumerWidget {
                     onCloseSession: () async {
                       final id = _sessionIdForHost(mgr, h);
                       if (id != null) await mgr.close(id);
+                      for (final f in mgr.files) {
+                        if (f.profile.id == h.id) {
+                          await mgr.closeFile(f.id);
+                        }
+                      }
                     },
                   ),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 4),
                 ],
                 if (mgr.sessions.isNotEmpty) ...[
-                  const Divider(height: 24),
-                  Text('会话', style: Theme.of(context).textTheme.labelLarge),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 8),
+                  SectionHeading(
+                    '终端会话',
+                    trailing: Text(
+                      '${mgr.sessions.length}',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
+                    ),
+                  ),
                   for (final s in mgr.sessions) ...[
                     _SessionCard(
                       title: s.keepAliveTitle,
@@ -124,13 +159,20 @@ class LeftPane extends ConsumerWidget {
                       },
                       onClose: () => mgr.close(s.id),
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 4),
                   ],
                 ],
                 if (mgr.files.isNotEmpty) ...[
-                  const Divider(height: 24),
-                  Text('文件会话', style: Theme.of(context).textTheme.labelLarge),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 8),
+                  SectionHeading(
+                    '文件会话',
+                    trailing: Text(
+                      '${mgr.files.length}',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
+                    ),
+                  ),
                   for (final f in mgr.files) ...[
                     _SessionCard(
                       title: f.keepAliveTitle,
@@ -142,7 +184,7 @@ class LeftPane extends ConsumerWidget {
                       },
                       onClose: () => mgr.closeFile(f.id),
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 4),
                   ],
                 ],
               ],
@@ -151,10 +193,13 @@ class LeftPane extends ConsumerWidget {
           SafeArea(
             top: false,
             child: Padding(
-              padding: const EdgeInsets.all(8),
-              child: FilledButton.tonalIcon(
+              padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+              child: FilledButton.icon(
                 style: FilledButton.styleFrom(
                   minimumSize: const Size.fromHeight(PadBreakpoints.minTap),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
                 ),
                 onPressed: () {
                   Navigator.of(context).push(
@@ -163,7 +208,7 @@ class LeftPane extends ConsumerWidget {
                     ),
                   );
                 },
-                icon: const Icon(Icons.add),
+                icon: const Icon(Icons.add, size: 20),
                 label: const Text('新建主机'),
               ),
             ),
@@ -214,9 +259,9 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Top guard: SafeArea + floor so OEM zero-inset still leaves tappable chrome.
     final topInset = MediaQuery.paddingOf(context).top;
     final guard = topInset > 0 ? 0.0 : PadBreakpoints.statusBarFloor;
+    final scheme = Theme.of(context).colorScheme;
     return Padding(
       padding: EdgeInsets.only(top: guard),
       child: SafeArea(
@@ -226,10 +271,14 @@ class _Header extends StatelessWidget {
           child: Row(
             children: [
               const SizedBox(width: 12),
+              Icon(Icons.terminal, size: 18, color: scheme.primary),
+              const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   compact ? 'Pad' : 'SSH Pad',
-                  style: Theme.of(context).textTheme.titleSmall,
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
@@ -241,8 +290,9 @@ class _Header extends StatelessWidget {
                 ),
                 icon: Icon(
                   themeMode == ThemeMode.dark
-                      ? Icons.light_mode
-                      : Icons.dark_mode,
+                      ? Icons.light_mode_outlined
+                      : Icons.dark_mode_outlined,
+                  size: 20,
                 ),
                 onPressed: onToggleTheme,
               ),
@@ -252,7 +302,7 @@ class _Header extends StatelessWidget {
                   minWidth: PadBreakpoints.minTap,
                   minHeight: PadBreakpoints.minTap,
                 ),
-                icon: const Icon(Icons.shield_outlined),
+                icon: const Icon(Icons.shield_outlined, size: 20),
                 onPressed: () {
                   Navigator.of(context).push(
                     MaterialPageRoute(
@@ -267,7 +317,7 @@ class _Header extends StatelessWidget {
                   minWidth: PadBreakpoints.minTap,
                   minHeight: PadBreakpoints.minTap,
                 ),
-                icon: const Icon(Icons.settings_outlined),
+                icon: const Icon(Icons.settings_outlined, size: 20),
                 onPressed: onSettings,
               ),
             ],
@@ -278,26 +328,60 @@ class _Header extends StatelessWidget {
   }
 }
 
-class _NavChip extends StatelessWidget {
-  const _NavChip({
+class _SegButton extends StatelessWidget {
+  const _SegButton({
     required this.label,
+    required this.icon,
     required this.selected,
     required this.onTap,
     this.enabled = true,
   });
 
   final String label;
+  final IconData icon;
   final bool selected;
   final VoidCallback onTap;
   final bool enabled;
 
   @override
   Widget build(BuildContext context) {
-    return FilterChip(
-      label: Text(label),
-      selected: selected,
-      onSelected: enabled ? (_) => onTap() : null,
-      visualDensity: VisualDensity.compact,
+    final scheme = Theme.of(context).colorScheme;
+    final bg = !enabled
+        ? scheme.surfaceContainerHighest.withValues(alpha: 0.35)
+        : selected
+            ? scheme.primary.withValues(alpha: 0.16)
+            : scheme.surface;
+    final fg = !enabled
+        ? scheme.onSurface.withValues(alpha: 0.35)
+        : selected
+            ? scheme.primary
+            : scheme.onSurfaceVariant;
+    return Material(
+      color: bg,
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: enabled ? onTap : null,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 16, color: fg),
+              const SizedBox(height: 2),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  color: fg,
+                  height: 1.1,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -324,86 +408,142 @@ class _HostCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final live = sessionPhase == SessionPhase.connected ||
-        sessionPhase == SessionPhase.connecting;
+    final live = SessionStatusStyle.isLive(sessionPhase);
     final title = host.name.isEmpty ? host.host : host.name;
+    final border = selected
+        ? Border.all(color: scheme.primary.withValues(alpha: 0.55))
+        : Border.all(color: scheme.outline.withValues(alpha: 0.55));
+
     return Material(
       color: selected
-          ? scheme.primary.withValues(alpha: 0.18)
-          : scheme.surfaceContainerHighest.withValues(alpha: 0.55),
-      borderRadius: BorderRadius.circular(10),
+          ? scheme.primary.withValues(alpha: 0.10)
+          : scheme.surface,
+      borderRadius: BorderRadius.circular(8),
       child: InkWell(
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(8),
         onTap: onTap,
         onLongPress: onEdit,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          child: Row(
-            children: [
-              CircleAvatar(
-                radius: 16,
-                child: Text(
-                  host.protocol.label.substring(0, 1),
-                  style: const TextStyle(fontSize: 11),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(title, overflow: TextOverflow.ellipsis),
-                    Text(
-                      '${host.protocol.label} · ${host.host}:${host.port}',
-                      style: Theme.of(context).textTheme.bodySmall,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    if (sessionPhase != null)
-                      Text(
-                        _phaseLabel(sessionPhase!),
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: live ? Colors.green : scheme.onSurfaceVariant,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(8),
+            border: border,
+          ),
+          child: IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                StatusAccentBar(phase: sessionPhase),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 7, 2, 7),
+                    child: Row(
+                      children: [
+                        StatusDot(phase: sessionPhase, size: 7),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Row(
+                                children: [
+                                  Flexible(
+                                    child: Text(
+                                      title,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        height: 1.2,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  ProtocolBadge(label: host.protocol.label),
+                                ],
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                '${host.host}:${host.port}'
+                                '${host.username.isEmpty ? '' : ' · ${host.username}'}',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  height: 1.15,
+                                  color: scheme.onSurfaceVariant,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              if (sessionPhase != null) ...[
+                                const SizedBox(height: 2),
+                                Text(
+                                  SessionStatusStyle.label(sessionPhase),
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    height: 1.1,
+                                    color: SessionStatusStyle.color(sessionPhase),
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
                         ),
-                      ),
-                  ],
-                ),
-              ),
-              if (live)
-                IconButton(
-                  tooltip: '断开',
-                  icon: const Icon(Icons.close, size: 18),
-                  constraints: const BoxConstraints(
-                    minWidth: PadBreakpoints.minTap,
-                    minHeight: PadBreakpoints.minTap,
+                        if (live)
+                          IconButton(
+                            tooltip: '断开',
+                            icon: const Icon(Icons.link_off, size: 18),
+                            visualDensity: VisualDensity.compact,
+                            constraints: const BoxConstraints(
+                              minWidth: 40,
+                              minHeight: 40,
+                            ),
+                            onPressed: onCloseSession,
+                          )
+                        else
+                          IconButton(
+                            tooltip: '连接',
+                            icon: Icon(
+                              Icons.play_arrow_rounded,
+                              size: 22,
+                              color: scheme.primary,
+                            ),
+                            visualDensity: VisualDensity.compact,
+                            constraints: const BoxConstraints(
+                              minWidth: 40,
+                              minHeight: 40,
+                            ),
+                            onPressed: onTap,
+                          ),
+                        PopupMenuButton<String>(
+                          tooltip: '更多',
+                          padding: EdgeInsets.zero,
+                          icon: const Icon(Icons.more_vert, size: 18),
+                          constraints: const BoxConstraints(
+                            minWidth: 40,
+                            minHeight: 40,
+                          ),
+                          onSelected: (v) {
+                            if (v == 'edit') onEdit();
+                            if (v == 'delete') onDelete();
+                            if (v == 'connect') onTap();
+                          },
+                          itemBuilder: (_) => const [
+                            PopupMenuItem(value: 'connect', child: Text('连接')),
+                            PopupMenuItem(value: 'edit', child: Text('编辑')),
+                            PopupMenuItem(value: 'delete', child: Text('删除')),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
-                  onPressed: onCloseSession,
                 ),
-              PopupMenuButton<String>(
-                onSelected: (v) {
-                  if (v == 'edit') onEdit();
-                  if (v == 'delete') onDelete();
-                  if (v == 'connect') onTap();
-                },
-                itemBuilder: (_) => const [
-                  PopupMenuItem(value: 'connect', child: Text('连接')),
-                  PopupMenuItem(value: 'edit', child: Text('编辑')),
-                  PopupMenuItem(value: 'delete', child: Text('删除')),
-                ],
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
     );
   }
-
-  static String _phaseLabel(SessionPhase p) => switch (p) {
-        SessionPhase.connecting => '连接中',
-        SessionPhase.connected => '已连接',
-        SessionPhase.disconnected => '已断开',
-        SessionPhase.error => '错误',
-      };
 }
 
 class _SessionCard extends StatelessWidget {
@@ -426,18 +566,75 @@ class _SessionCard extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     return Material(
       color: selected
-          ? scheme.primary.withValues(alpha: 0.18)
-          : scheme.surfaceContainerHighest.withValues(alpha: 0.4),
-      borderRadius: BorderRadius.circular(10),
-      child: ListTile(
-        dense: true,
-        title: Text(title, overflow: TextOverflow.ellipsis),
-        subtitle: Text(_HostCard._phaseLabel(phase)),
-        selected: selected,
+          ? scheme.primary.withValues(alpha: 0.10)
+          : scheme.surface,
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
         onTap: onSelect,
-        trailing: IconButton(
-          icon: const Icon(Icons.close, size: 18),
-          onPressed: onClose,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: selected
+                  ? scheme.primary.withValues(alpha: 0.55)
+                  : scheme.outline.withValues(alpha: 0.45),
+            ),
+          ),
+          child: IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                StatusAccentBar(phase: phase),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 6, 2, 6),
+                    child: Row(
+                      children: [
+                        StatusDot(phase: phase, size: 7),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                title,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w600,
+                                  height: 1.2,
+                                ),
+                              ),
+                              Text(
+                                SessionStatusStyle.label(phase),
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: SessionStatusStyle.color(phase),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: '关闭',
+                          icon: const Icon(Icons.close, size: 16),
+                          visualDensity: VisualDensity.compact,
+                          constraints: const BoxConstraints(
+                            minWidth: 40,
+                            minHeight: 40,
+                          ),
+                          onPressed: onClose,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );

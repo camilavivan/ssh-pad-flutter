@@ -352,19 +352,73 @@ class _FilesPageState extends ConsumerState<FilesPage> {
     return '${(size / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 
-  Widget _pathBar(String path, {Color? color}) {
+  Widget _pathBar(String path, {IconData icon = Icons.folder_outlined}) {
+    final scheme = Theme.of(context).colorScheme;
     return Material(
-      color: color ?? Theme.of(context).colorScheme.surfaceContainerHighest,
-      child: SizedBox(
+      color: scheme.surfaceContainerHighest,
+      child: Container(
         width: double.infinity,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          child: Text(
-            path,
-            style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(color: scheme.outline.withValues(alpha: 0.4)),
           ),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        child: Row(
+          children: [
+            Icon(icon, size: 14, color: scheme.onSurfaceVariant),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                path.isEmpty ? '/' : path,
+                style: TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 11.5,
+                  color: scheme.onSurface,
+                  height: 1.2,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _paneHeader({
+    required IconData icon,
+    required String title,
+    required List<Widget> actions,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.surfaceContainerHigh,
+      child: Container(
+        height: 44,
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(color: scheme.outline.withValues(alpha: 0.4)),
+          ),
+        ),
+        child: Row(
+          children: [
+            const SizedBox(width: 10),
+            Icon(icon, size: 16, color: scheme.primary),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                title,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            ...actions,
+          ],
         ),
       ),
     );
@@ -373,38 +427,31 @@ class _FilesPageState extends ConsumerState<FilesPage> {
   Widget _localPane() {
     return Column(
       children: [
-        Material(
-          color: Theme.of(context).colorScheme.surfaceContainerHigh,
-          child: SizedBox(
-            height: 48,
-            child: Row(
-              children: [
-                const SizedBox(width: 8),
-                const Icon(Icons.phone_android, size: 18),
-                const SizedBox(width: 6),
-                const Expanded(
-                  child: Text('本地', style: TextStyle(fontWeight: FontWeight.w600)),
-                ),
-                IconButton(
-                  tooltip: '上级',
-                  onPressed: _busy ? null : _goUpLocal,
-                  icon: const Icon(Icons.arrow_upward),
-                ),
-                IconButton(
-                  tooltip: '刷新',
-                  onPressed: _busy ? null : _reloadLocal,
-                  icon: const Icon(Icons.refresh),
-                ),
-                IconButton(
-                  tooltip: '选择文件夹',
-                  onPressed: _busy ? null : _pickLocalFolder,
-                  icon: const Icon(Icons.folder_open),
-                ),
-              ],
+        _paneHeader(
+          icon: Icons.phone_android,
+          title: '本地',
+          actions: [
+            IconButton(
+              tooltip: '上级',
+              visualDensity: VisualDensity.compact,
+              onPressed: _busy ? null : _goUpLocal,
+              icon: const Icon(Icons.arrow_upward, size: 18),
             ),
-          ),
+            IconButton(
+              tooltip: '刷新',
+              visualDensity: VisualDensity.compact,
+              onPressed: _busy ? null : _reloadLocal,
+              icon: const Icon(Icons.refresh, size: 18),
+            ),
+            IconButton(
+              tooltip: '选择文件夹',
+              visualDensity: VisualDensity.compact,
+              onPressed: _busy ? null : _pickLocalFolder,
+              icon: const Icon(Icons.folder_open, size: 18),
+            ),
+          ],
         ),
-        _pathBar(_localPath),
+        _pathBar(_localPath, icon: Icons.sd_storage_outlined),
         if (_loadingLocal) const LinearProgressIndicator(minHeight: 2),
         if (_localError != null)
           Padding(
@@ -422,24 +469,36 @@ class _FilesPageState extends ConsumerState<FilesPage> {
                   separatorBuilder: (_, _) => const Divider(height: 1),
                   itemBuilder: (context, i) {
                     final e = _local[i];
+                    final scheme = Theme.of(context).colorScheme;
                     return ListTile(
                       dense: true,
+                      visualDensity: VisualDensity.compact,
                       leading: Icon(
                         e.isDirectory
                             ? Icons.folder
                             : Icons.insert_drive_file_outlined,
+                        size: 20,
+                        color: e.isDirectory
+                            ? scheme.primary
+                            : scheme.onSurfaceVariant,
                       ),
-                      title: Text(e.name, overflow: TextOverflow.ellipsis),
+                      title: Text(
+                        e.name,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                      ),
                       subtitle: Text(
                         e.isDirectory ? '目录' : _formatSize(e.size),
+                        style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
                       ),
                       onTap: e.isDirectory ? () => _openLocalDir(e) : null,
                       trailing: e.isDirectory
-                          ? null
+                          ? Icon(Icons.chevron_right, size: 18, color: scheme.onSurfaceVariant)
                           : IconButton(
                               tooltip: '上传到远程',
+                              visualDensity: VisualDensity.compact,
                               onPressed: _busy ? null : () => _uploadLocal(e),
-                              icon: const Icon(Icons.upload),
+                              icon: Icon(Icons.upload, size: 18, color: scheme.primary),
                             ),
                     );
                   },
@@ -470,28 +529,12 @@ class _FilesPageState extends ConsumerState<FilesPage> {
               ),
             ),
           ),
-        Material(
-          color: Theme.of(context).colorScheme.surfaceContainerHigh,
-          child: SizedBox(
-            height: 48,
-            child: Row(
-              children: [
-                const SizedBox(width: 8),
-                const Icon(Icons.cloud_outlined, size: 18),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    session?.keepAliveTitle ?? '远程',
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                ...actions,
-              ],
-            ),
-          ),
+        _paneHeader(
+          icon: Icons.cloud_outlined,
+          title: session?.keepAliveTitle ?? '远程',
+          actions: actions,
         ),
-        _pathBar(session?.backend.currentPath ?? ''),
+        _pathBar(session?.backend.currentPath ?? '', icon: Icons.cloud_queue_outlined),
         if (_busy || _loadingRemote) const LinearProgressIndicator(minHeight: 2),
         if (_remoteError != null)
           Padding(
@@ -509,35 +552,60 @@ class _FilesPageState extends ConsumerState<FilesPage> {
                   separatorBuilder: (_, _) => const Divider(height: 1),
                   itemBuilder: (context, i) {
                     final e = _remote[i];
+                    final scheme = Theme.of(context).colorScheme;
                     return ListTile(
                       dense: true,
+                      visualDensity: VisualDensity.compact,
                       leading: Icon(
                         e.isDirectory
                             ? Icons.folder
                             : Icons.insert_drive_file_outlined,
+                        size: 20,
+                        color: e.isDirectory
+                            ? scheme.primary
+                            : scheme.onSurfaceVariant,
                       ),
-                      title: Text(e.name),
+                      title: Text(
+                        e.name,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                      ),
                       subtitle: Text(
                         e.isDirectory ? '目录' : _formatSize(e.size),
+                        style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
                       ),
                       onTap: e.isDirectory ? () => _openRemoteDir(e) : null,
-                      trailing: PopupMenuButton<String>(
-                        onSelected: (v) {
-                          if (v == 'download' && !e.isDirectory) {
-                            _downloadToLocal(e);
-                          } else if (v == 'delete') {
-                            _deleteRemote(e);
-                          }
-                        },
-                        itemBuilder: (_) => [
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
                           if (!e.isDirectory)
-                            const PopupMenuItem(
-                              value: 'download',
-                              child: Text('下载到本地栏'),
+                            IconButton(
+                              tooltip: '下载到本地',
+                              visualDensity: VisualDensity.compact,
+                              onPressed: _busy ? null : () => _downloadToLocal(e),
+                              icon: Icon(Icons.download, size: 18, color: scheme.primary),
                             ),
-                          const PopupMenuItem(
-                            value: 'delete',
-                            child: Text('删除'),
+                          PopupMenuButton<String>(
+                            tooltip: '更多',
+                            padding: EdgeInsets.zero,
+                            onSelected: (v) {
+                              if (v == 'download' && !e.isDirectory) {
+                                _downloadToLocal(e);
+                              } else if (v == 'delete') {
+                                _deleteRemote(e);
+                              }
+                            },
+                            itemBuilder: (_) => [
+                              if (!e.isDirectory)
+                                const PopupMenuItem(
+                                  value: 'download',
+                                  child: Text('下载到本地栏'),
+                                ),
+                              const PopupMenuItem(
+                                value: 'delete',
+                                child: Text('删除'),
+                              ),
+                            ],
                           ),
                         ],
                       ),
@@ -558,45 +626,58 @@ class _FilesPageState extends ConsumerState<FilesPage> {
       if (!wide)
         IconButton(
           tooltip: _showLocalNarrow ? '隐藏本地' : '显示本地',
+          visualDensity: VisualDensity.compact,
           onPressed: () => setState(() => _showLocalNarrow = !_showLocalNarrow),
           icon: Icon(
             _showLocalNarrow ? Icons.phone_android : Icons.phone_android_outlined,
+            size: 18,
           ),
         ),
       IconButton(
         tooltip: '上级目录',
+        visualDensity: VisualDensity.compact,
         onPressed: _busy ? null : _goUpRemote,
-        icon: const Icon(Icons.arrow_upward),
+        icon: const Icon(Icons.arrow_upward, size: 18),
       ),
       IconButton(
         tooltip: '刷新',
+        visualDensity: VisualDensity.compact,
         onPressed: _busy ? null : _reloadRemote,
-        icon: const Icon(Icons.refresh),
+        icon: const Icon(Icons.refresh, size: 18),
       ),
       IconButton(
         tooltip: '新建文件夹',
+        visualDensity: VisualDensity.compact,
         onPressed: _busy ? null : _mkdirRemote,
-        icon: const Icon(Icons.create_new_folder_outlined),
+        icon: const Icon(Icons.create_new_folder_outlined, size: 18),
       ),
       IconButton(
         tooltip: '上传（选取文件）',
+        visualDensity: VisualDensity.compact,
         onPressed: _busy ? null : _uploadPicked,
-        icon: const Icon(Icons.upload_file),
+        icon: const Icon(Icons.upload_file, size: 18),
       ),
       IconButton(
         tooltip: '断开',
+        visualDensity: VisualDensity.compact,
         onPressed: _close,
-        icon: const Icon(Icons.link_off),
+        icon: const Icon(Icons.link_off, size: 18),
       ),
     ];
 
+    final scheme = Theme.of(context).colorScheme;
     final body = wide
         ? Row(
             children: [
-              Expanded(child: _localPane()),
-              VerticalDivider(
-                width: 1,
-                color: Theme.of(context).dividerColor,
+              Expanded(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    border: Border(
+                      right: BorderSide(color: scheme.outline.withValues(alpha: 0.35)),
+                    ),
+                  ),
+                  child: _localPane(),
+                ),
               ),
               Expanded(child: _remotePane(actions: remoteActions)),
             ],
@@ -614,7 +695,50 @@ class _FilesPageState extends ConsumerState<FilesPage> {
           );
 
     if (widget.embedded) {
-      return body;
+      return Column(
+        children: [
+          Material(
+            color: scheme.surfaceContainerHighest,
+            child: SafeArea(
+              bottom: false,
+              child: Container(
+                height: 44,
+                decoration: BoxDecoration(
+                  border: Border(
+                    bottom: BorderSide(color: scheme.outline.withValues(alpha: 0.45)),
+                  ),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                alignment: Alignment.centerLeft,
+                child: Row(
+                  children: [
+                    Icon(Icons.folder_open, size: 18, color: scheme.primary),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _session?.keepAliveTitle ?? '文件',
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    Text(
+                      wide ? '双栏' : '远程',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Expanded(child: body),
+        ],
+      );
     }
 
     return Scaffold(

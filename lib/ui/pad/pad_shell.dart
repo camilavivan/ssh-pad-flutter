@@ -95,8 +95,22 @@ class _PadShellState extends ConsumerState<PadShell> {
       case PadSection.files:
         final mgr = ref.watch(sessionManagerProvider);
         if (mgr.files.isEmpty) {
-          return const Center(
-            child: Text('暂无文件会话\n用 SFTP/FTP 主机连接，或从终端打开文件'),
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.folder_off_outlined, size: 40,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant),
+                const SizedBox(height: 12),
+                const Text('暂无文件会话', style: TextStyle(fontWeight: FontWeight.w600)),
+                const SizedBox(height: 4),
+                Text(
+                  '用 SFTP/FTP 主机连接，或从终端打开文件',
+                  style: Theme.of(context).textTheme.bodySmall,
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
           );
         }
         return FilesPage(
@@ -158,6 +172,7 @@ class _PadShellState extends ConsumerState<PadShell> {
         }
 
         // Narrow: NavigationRail + body (don't break phones).
+        final scheme = Theme.of(context).colorScheme;
         return Scaffold(
           body: SafeArea(
             child: Row(
@@ -167,7 +182,10 @@ class _PadShellState extends ConsumerState<PadShell> {
                   onDestinationSelected: (i) {
                     setState(() => _section = _sectionFromRail(i));
                   },
-                  labelType: NavigationRailLabelType.all,
+                  // Theme supplies minWidth 56 + selected labels (ServerBox-like).
+                  labelType: NavigationRailLabelType.selected,
+                  groupAlignment: -0.9,
+                  backgroundColor: scheme.surfaceContainerHighest,
                   destinations: const [
                     NavigationRailDestination(
                       icon: Icon(Icons.dns_outlined),
@@ -191,7 +209,10 @@ class _PadShellState extends ConsumerState<PadShell> {
                     ),
                   ],
                 ),
-                const VerticalDivider(width: 1),
+                VerticalDivider(
+                  width: 1,
+                  color: scheme.outline.withValues(alpha: 0.45),
+                ),
                 Expanded(child: _narrowBody()),
               ],
             ),

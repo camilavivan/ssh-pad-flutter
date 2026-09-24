@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-/// Primer-inspired light / dark palettes (simplified for M0).
+/// Primer-inspired light / dark palettes with denser ServerBox-like chrome.
 class AppThemes {
   static const _primerBlue = Color(0xFF0969DA);
   static const _primerBlueDark = Color(0xFF2F81F7);
@@ -16,6 +16,33 @@ class AppThemes {
   static const _subtleLight = Color(0xFFF6F8FA);
   static const _subtleDark = Color(0xFF161B22);
 
+  static NavigationRailThemeData _rail(Brightness b) {
+    final selected = b == Brightness.dark ? _primerBlueDark : _primerBlue;
+    return NavigationRailThemeData(
+      backgroundColor: b == Brightness.dark ? _subtleDark : _subtleLight,
+      elevation: 0,
+      minWidth: 56,
+      minExtendedWidth: 160,
+      groupAlignment: -0.85,
+      labelType: NavigationRailLabelType.selected,
+      indicatorColor: selected.withValues(alpha: 0.18),
+      selectedIconTheme: IconThemeData(color: selected, size: 22),
+      unselectedIconTheme: IconThemeData(
+        color: b == Brightness.dark ? _mutedDark : _mutedLight,
+        size: 22,
+      ),
+      selectedLabelTextStyle: TextStyle(
+        color: selected,
+        fontSize: 11,
+        fontWeight: FontWeight.w600,
+      ),
+      unselectedLabelTextStyle: TextStyle(
+        color: b == Brightness.dark ? _mutedDark : _mutedLight,
+        fontSize: 11,
+      ),
+    );
+  }
+
   static ThemeData get light => ThemeData(
         useMaterial3: true,
         brightness: Brightness.light,
@@ -27,6 +54,7 @@ class AppThemes {
           onSurfaceVariant: _mutedLight,
           outline: _borderLight,
           surfaceContainerHighest: _subtleLight,
+          surfaceContainerHigh: const Color(0xFFEEF1F4),
         ),
         scaffoldBackgroundColor: _canvasLight,
         appBarTheme: const AppBarTheme(
@@ -34,16 +62,34 @@ class AppThemes {
           foregroundColor: _fgLight,
           elevation: 0,
           scrolledUnderElevation: 1,
+          titleTextStyle: TextStyle(
+            color: _fgLight,
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+          ),
         ),
         cardTheme: CardThemeData(
           color: _canvasLight,
           elevation: 0,
+          margin: EdgeInsets.zero,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(10),
             side: const BorderSide(color: _borderLight),
           ),
         ),
         dividerColor: _borderLight,
+        listTileTheme: const ListTileThemeData(
+          dense: true,
+          visualDensity: VisualDensity.compact,
+          contentPadding: EdgeInsets.symmetric(horizontal: 12),
+        ),
+        navigationRailTheme: _rail(Brightness.light),
+        chipTheme: ChipThemeData(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          labelPadding: const EdgeInsets.symmetric(horizontal: 4),
+          side: const BorderSide(color: _borderLight),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
       );
 
   static ThemeData get dark => ThemeData(
@@ -57,6 +103,7 @@ class AppThemes {
           onSurfaceVariant: _mutedDark,
           outline: _borderDark,
           surfaceContainerHighest: _subtleDark,
+          surfaceContainerHigh: const Color(0xFF1C2128),
         ),
         scaffoldBackgroundColor: _canvasDark,
         appBarTheme: const AppBarTheme(
@@ -64,16 +111,34 @@ class AppThemes {
           foregroundColor: _fgDark,
           elevation: 0,
           scrolledUnderElevation: 1,
+          titleTextStyle: TextStyle(
+            color: _fgDark,
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+          ),
         ),
         cardTheme: CardThemeData(
           color: _subtleDark,
           elevation: 0,
+          margin: EdgeInsets.zero,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(10),
             side: const BorderSide(color: _borderDark),
           ),
         ),
         dividerColor: _borderDark,
+        listTileTheme: const ListTileThemeData(
+          dense: true,
+          visualDensity: VisualDensity.compact,
+          contentPadding: EdgeInsets.symmetric(horizontal: 12),
+        ),
+        navigationRailTheme: _rail(Brightness.dark),
+        chipTheme: ChipThemeData(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          labelPadding: const EdgeInsets.symmetric(horizontal: 4),
+          side: const BorderSide(color: _borderDark),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
       );
 }
 

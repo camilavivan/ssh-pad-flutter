@@ -5,7 +5,7 @@ import 'package:xterm/xterm.dart';
 import '../../core/session/terminal_session.dart';
 import '../pad/pad_breakpoints.dart';
 
-/// Pad-friendly ExtraKeys strip: Esc, Tab, Ctrl (sticky), arrows, Ctrl-C.
+/// Pad ExtraKeys strip styled closer to ServerBox virt-key chrome.
 ///
 /// When [hideForHardwareKeyboard] is true the bar collapses (Bluetooth plugged).
 class ExtraKeysBar extends StatefulWidget {
@@ -26,6 +26,7 @@ class ExtraKeysBar extends StatefulWidget {
 
 class _ExtraKeysBarState extends State<ExtraKeysBar> {
   bool _ctrlSticky = false;
+  bool _altSticky = false;
 
   void _tap(VoidCallback action) {
     HapticFeedback.selectionClick();
@@ -37,16 +38,26 @@ class _ExtraKeysBarState extends State<ExtraKeysBar> {
       widget.terminal.keyInput(
         key,
         ctrl: _ctrlSticky,
+        alt: _altSticky,
       );
-      if (_ctrlSticky) setState(() => _ctrlSticky = false);
+      _clearMods();
     });
   }
 
   void _sendChar(int code) {
     _tap(() {
-      widget.terminal.charInput(code, ctrl: _ctrlSticky);
-      if (_ctrlSticky) setState(() => _ctrlSticky = false);
+      widget.terminal.charInput(code, ctrl: _ctrlSticky, alt: _altSticky);
+      _clearMods();
     });
+  }
+
+  void _clearMods() {
+    if (_ctrlSticky || _altSticky) {
+      setState(() {
+        _ctrlSticky = false;
+        _altSticky = false;
+      });
+    }
   }
 
   @override
@@ -56,28 +67,47 @@ class _ExtraKeysBarState extends State<ExtraKeysBar> {
     }
 
     final scheme = Theme.of(context).colorScheme;
-    Widget chip(String label, VoidCallback onPressed, {bool active = false}) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final barBg = dark ? const Color(0xFF161B22) : const Color(0xFFEEF1F4);
+    final keyBg = dark ? const Color(0xFF21262D) : Colors.white;
+    final keyBorder = dark ? const Color(0xFF30363D) : const Color(0xFFD0D7DE);
+    final activeBg = scheme.primary.withValues(alpha: 0.22);
+    final activeBorder = scheme.primary;
+
+    Widget key(
+      String label,
+      VoidCallback onPressed, {
+      bool active = false,
+      double minWidth = 44,
+    }) {
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 2),
         child: Material(
-          color: active ? scheme.primaryContainer : scheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(6),
+          color: active ? activeBg : keyBg,
+          borderRadius: BorderRadius.circular(7),
           child: InkWell(
-            borderRadius: BorderRadius.circular(6),
+            borderRadius: BorderRadius.circular(7),
             onTap: onPressed,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: PadBreakpoints.minTap - 4),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                child: Center(
-                  child: Text(
-                    label,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: active ? scheme.onPrimaryContainer : scheme.onSurface,
-                    ),
-                  ),
+            child: Container(
+              constraints: BoxConstraints(
+                minWidth: minWidth,
+                minHeight: PadBreakpoints.minTap - 8,
+              ),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(7),
+                border: Border.all(color: active ? activeBorder : keyBorder),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              alignment: Alignment.center,
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  fontFamily: 'monospace',
+                  letterSpacing: 0.2,
+                  color: active ? scheme.primary : scheme.onSurface,
+                  height: 1,
                 ),
               ),
             ),
@@ -87,28 +117,40 @@ class _ExtraKeysBarState extends State<ExtraKeysBar> {
     }
 
     return Material(
-      elevation: 1,
-      color: scheme.surface,
+      color: barBg,
+      elevation: 2,
       child: SafeArea(
         top: false,
-        child: SizedBox(
-          height: PadBreakpoints.minTap + 4,
+        child: Container(
+          decoration: BoxDecoration(
+            border: Border(top: BorderSide(color: keyBorder)),
+          ),
+          height: PadBreakpoints.minTap + 2,
           child: ListView(
             scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
             children: [
-              chip('Esc', () => _sendKey(TerminalKey.escape)),
-              chip('Tab', () => _sendKey(TerminalKey.tab)),
-              chip(
+              key('Esc', () => _sendKey(TerminalKey.escape)),
+              key('Tab', () => _sendKey(TerminalKey.tab)),
+              key(
                 'Ctrl',
                 () => setState(() => _ctrlSticky = !_ctrlSticky),
                 active: _ctrlSticky,
+                minWidth: 48,
               ),
-              chip('↑', () => _sendKey(TerminalKey.arrowUp)),
-              chip('↓', () => _sendKey(TerminalKey.arrowDown)),
-              chip('←', () => _sendKey(TerminalKey.arrowLeft)),
-              chip('→', () => _sendKey(TerminalKey.arrowRight)),
-              chip('Ctrl-C', () {
+              key(
+                'Alt',
+                () => setState(() => _altSticky = !_altSticky),
+                active: _altSticky,
+                minWidth: 44,
+              ),
+              key('↑', () => _sendKey(TerminalKey.arrowUp), minWidth: 40),
+              key('↓', () => _sendKey(TerminalKey.arrowDown), minWidth: 40),
+              key('←', () => _sendKey(TerminalKey.arrowLeft), minWidth: 40),
+              key('→', () => _sendKey(TerminalKey.arrowRight), minWidth: 40),
+              key('Home', () => _sendKey(TerminalKey.home), minWidth: 48),
+              key('End', () => _sendKey(TerminalKey.end), minWidth: 44),
+              key('^C', () {
                 _tap(() {
                   final s = widget.session;
                   if (s != null && s.isConnected) {
@@ -118,8 +160,10 @@ class _ExtraKeysBarState extends State<ExtraKeysBar> {
                   }
                 });
               }),
-              chip('Ctrl-D', () => _sendChar(0x44)),
-              chip('Ctrl-Z', () => _sendChar(0x5a)),
+              key('^D', () => _sendChar(0x44)),
+              key('^Z', () => _sendChar(0x5a)),
+              key('|', () => _sendChar(0x7c), minWidth: 36),
+              key('~', () => _sendChar(0x7e), minWidth: 36),
             ],
           ),
         ),
