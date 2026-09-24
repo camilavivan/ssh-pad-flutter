@@ -1,5 +1,5 @@
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ssh_pad_flutter/ui/keyboard/app_escape_policy.dart';
 import 'package:ssh_pad_flutter/ui/terminal/hardware_keyboard_handler.dart';
@@ -18,14 +18,7 @@ void main() {
     expect(kTerminalKeyboardType, TextInputType.visiblePassword);
   });
 
-  test('Escape disposition: terminal / overlay / consume', () {
-    expect(
-      AppEscapePolicy.disposition(
-        terminalShouldReceive: true,
-        barrierDismissiblePopup: false,
-      ),
-      EscapeDisposition.sendToPty,
-    );
+  test('Escape disposition: overlay first, then terminal, else consume', () {
     expect(
       AppEscapePolicy.disposition(
         terminalShouldReceive: false,
@@ -35,18 +28,25 @@ void main() {
     );
     expect(
       AppEscapePolicy.disposition(
+        terminalShouldReceive: true,
+        barrierDismissiblePopup: false,
+      ),
+      EscapeDisposition.sendToPty,
+    );
+    expect(
+      AppEscapePolicy.disposition(
         terminalShouldReceive: false,
         barrierDismissiblePopup: false,
       ),
       EscapeDisposition.consume,
     );
-    // Terminal wins over overlay.
+    // Overlay wins over terminal (menus must close).
     expect(
       AppEscapePolicy.disposition(
         terminalShouldReceive: true,
         barrierDismissiblePopup: true,
       ),
-      EscapeDisposition.sendToPty,
+      EscapeDisposition.allowOverlayDismiss,
     );
   });
 
@@ -69,6 +69,13 @@ void main() {
       expect(e.value, isA<DoNothingAndStopPropagationIntent>());
       expect(e.value, isNot(isA<DismissIntent>()));
     }
+  });
+
+  test('actionsWithoutEscapeBack neutralizes DismissIntent', () {
+    final fixed = AppEscapePolicy.actionsWithoutEscapeBack(
+      Map<Type, Action<Intent>>.of(WidgetsApp.defaultActions),
+    );
+    expect(fixed[DismissIntent], isA<DoNothingAction>());
   });
 
   test('early Esc with terminal sink sends once and is handled', () {
@@ -95,6 +102,7 @@ void main() {
     );
     expect(down, KeyEventResult.handled);
     expect(output, contains(0x1b));
+    expect(output.where((c) => c == 0x1b).length, 1);
 
     final before = output.length;
     final repeat = AppEscapePolicy.handleEarlyKeyEvent(
@@ -162,7 +170,8 @@ void main() {
     );
   });
 
-  test('TerminalEscapeSink requires active + focus', () {
+  test('TerminalEscapeSink: focused always receives; unfocused depends on editable',
+      () {
     final term = Terminal(maxLines: 100);
     var active = true;
     var focused = false;
@@ -171,10 +180,147 @@ void main() {
       isActive: () => active,
       hasTerminalFocus: () => focused,
     );
-    expect(sink.shouldReceiveEscape(), isFalse);
+    // Unfocused + no EditableText primary → pad-split chrome may receive Esc.
+    expect(AppEscapePolicy.primaryFocusIsEditableText(), isFalse);
+    expect(sink.shouldReceiveEscape(), isTrue);
+
     focused = true;
     expect(sink.shouldReceiveEscape(), isTrue);
+
     active = false;
     expect(sink.shouldReceiveEscape(), isFalse);
+  });
+
+  testWidgets('Ctrl+[ with terminal sink sends single 0x1b', (tester) async {
+    final term = Terminal(maxLines: 100);
+    final output = <int>[];
+    term.onOutput = (data) {
+      output.addAll(data.codeUnits);
+    };
+
+    AppEscapePolicy.install();
+    AppEscapePolicy.setTerminalSink(
+      TerminalEscapeSink(
+        terminal: term,
+        isActive: () => true,
+        hasTerminalFocus: () => true,
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        shortcuts: AppEscapePolicy.shortcutsWithoutEscapeBack(
+          Map<ShortcutActivator, Intent>.of(WidgetsApp.defaultShortcuts),
+        ),
+        home: const Scaffold(body: SizedBox.expand()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.bracketLeft);
+    await tester.pump();
+
+    expect(output, contains(0x1b));
+    expect(output.where((c) => c == 0x1b).length, 1);
+
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.bracketLeft);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+  });
+
+  testWidgets('Esc does not pop a page route (DismissIntent disabled)',
+      (tester) async {
+    final navKey = GlobalKey<NavigatorState>();
+    AppEscapePolicy.bindNavigator(navKey);
+    AppEscapePolicy.install();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        navigatorKey: navKey,
+        shortcuts: AppEscapePolicy.shortcutsWithoutEscapeBack(
+          Map<ShortcutActivator, Intent>.of(WidgetsApp.defaultShortcuts),
+        ),
+        actions: AppEscapePolicy.actionsWithoutEscapeBack(
+          Map<Type, Action<Intent>>.of(WidgetsApp.defaultActions),
+        ),
+        home: Builder(
+          builder: (context) {
+            return Scaffold(
+              body: Center(
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const Scaffold(
+                          body: Center(child: Text('inner-page')),
+                        ),
+                      ),
+                    );
+                  },
+                  child: const Text('go'),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('go'));
+    await tester.pumpAndSettle();
+    expect(find.text('inner-page'), findsOneWidget);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+
+    // Page route must remain — Esc is not Back / DismissIntent.
+    expect(find.text('inner-page'), findsOneWidget);
+  });
+
+  testWidgets('Esc with focused terminal sink sends 0x1b via early handler',
+      (tester) async {
+    final term = Terminal(maxLines: 100);
+    final output = <int>[];
+    term.onOutput = (data) {
+      output.addAll(data.codeUnits);
+    };
+
+    final focus = FocusNode();
+    addTearDown(focus.dispose);
+
+    AppEscapePolicy.install();
+    AppEscapePolicy.setTerminalSink(
+      TerminalEscapeSink(
+        terminal: term,
+        isActive: () => true,
+        hasTerminalFocus: () => focus.hasFocus,
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        shortcuts: AppEscapePolicy.shortcutsWithoutEscapeBack(
+          Map<ShortcutActivator, Intent>.of(WidgetsApp.defaultShortcuts),
+        ),
+        actions: AppEscapePolicy.actionsWithoutEscapeBack(
+          Map<Type, Action<Intent>>.of(WidgetsApp.defaultActions),
+        ),
+        home: Scaffold(
+          body: Focus(
+            focusNode: focus,
+            autofocus: true,
+            child: const Text('term-focus'),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(focus.hasFocus, isTrue);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+
+    expect(output, contains(0x1b));
+    expect(output.where((c) => c == 0x1b).length, 1);
   });
 }

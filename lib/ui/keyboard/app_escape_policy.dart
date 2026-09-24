@@ -9,11 +9,16 @@ import 'package:xterm/xterm.dart';
 /// system / Flutter Back in this app.
 ///
 /// Installed as a [FocusManager] early key handler (before focus tree /
-/// Shortcuts) plus a MaterialApp shortcut override:
-/// 1. Terminal sink active + focused → send ESC (0x1b) to PTY once, consume.
-/// 2. Barrier-dismissible [PopupRoute] on top → [Navigator.maybePop] that
-///    overlay only (menus / intentional soft dialogs), consume.
+/// Shortcuts) plus MaterialApp shortcut / action overrides:
+/// 1. Barrier-dismissible [PopupRoute] on top → [Navigator.maybePop] that
+///    overlay only (menus / soft dialogs). Overlay wins so Esc always closes
+///    a menu even if a terminal session is active underneath.
+/// 2. Terminal sink active and allowed to receive → send ESC (0x1b) to PTY
+///    once per physical down (no KeyRepeat flood; no TerminalView double-send).
 /// 3. Everywhere else → consume Escape (no shell pop / no leave-app).
+///
+/// Also maps **Ctrl+[** → Esc when the terminal sink may receive (classic vi
+/// alias). xterm's Ctrl handler only covers A–Z, so this is required.
 ///
 /// Does **not** intercept [LogicalKeyboardKey.goBack] (hardware Back / gesture).
 class AppEscapePolicy {
@@ -77,17 +82,55 @@ class AppEscapePolicy {
     return out;
   }
 
-  /// FocusManager early handler — before focus tree / Shortcuts.
+  /// MaterialApp actions: neutralize [DismissIntent] even if something invokes
+  /// it without going through our Esc shortcut override.
+  static Map<Type, Action<Intent>> actionsWithoutEscapeBack(
+    Map<Type, Action<Intent>> base,
+  ) {
+    return <Type, Action<Intent>>{
+      ...base,
+      DismissIntent: DoNothingAction(consumesKey: true),
+    };
+  }
+
+  /// FocusManager early handler — before focus tree / Shortcuts / TerminalView.
   static KeyEventResult handleEarlyKeyEvent(KeyEvent event) {
     if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
       return KeyEventResult.ignored;
     }
+
+    // Ctrl+[ → Esc alias for vi (xterm Ctrl handler is A–Z only).
+    if (_isCtrlBracketLeft(event)) {
+      final sink = _terminalSink;
+      if (sink != null && sink.shouldReceiveEscape()) {
+        if (event is KeyDownEvent) {
+          sink.sendEscape();
+        }
+        return KeyEventResult.handled;
+      }
+      return KeyEventResult.ignored;
+    }
+
     if (event.logicalKey != LogicalKeyboardKey.escape) {
       return KeyEventResult.ignored;
     }
 
+    // Bare Esc only for policy paths; modified Esc is still consumed so it
+    // cannot become Back, but is not forwarded as a plain 0x1b.
+    final modified = HardwareKeyboard.instance.isControlPressed ||
+        HardwareKeyboard.instance.isAltPressed ||
+        HardwareKeyboard.instance.isMetaPressed;
+
+    if (!modified &&
+        event is KeyDownEvent &&
+        isBarrierDismissiblePopupShowing()) {
+      // Close the overlay only — never the main shell / page route.
+      _navigatorKey?.currentState?.maybePop();
+      return KeyEventResult.handled;
+    }
+
     final sink = _terminalSink;
-    if (sink != null && sink.shouldReceiveEscape()) {
+    if (!modified && sink != null && sink.shouldReceiveEscape()) {
       // One Esc per physical down (ignore repeat flood into PTY).
       if (event is KeyDownEvent) {
         sink.sendEscape();
@@ -95,22 +138,27 @@ class AppEscapePolicy {
       return KeyEventResult.handled;
     }
 
-    if (event is KeyDownEvent && isBarrierDismissiblePopupShowing()) {
-      // Close the overlay only — never the main shell.
-      _navigatorKey?.currentState?.maybePop();
-      return KeyEventResult.handled;
-    }
-
+    // Consume (including modified Esc) — never DismissIntent / Back.
     return KeyEventResult.handled;
   }
 
-  /// Pure decision helper for unit tests.
+  static bool _isCtrlBracketLeft(KeyEvent event) {
+    if (event.logicalKey != LogicalKeyboardKey.bracketLeft) return false;
+    if (!HardwareKeyboard.instance.isControlPressed) return false;
+    if (HardwareKeyboard.instance.isShiftPressed) return false;
+    if (HardwareKeyboard.instance.isAltPressed) return false;
+    if (HardwareKeyboard.instance.isMetaPressed) return false;
+    return true;
+  }
+
+  /// Pure decision helper for unit tests (mirrors [handleEarlyKeyEvent] order).
   static EscapeDisposition disposition({
     required bool terminalShouldReceive,
     required bool barrierDismissiblePopup,
   }) {
-    if (terminalShouldReceive) return EscapeDisposition.sendToPty;
+    // Overlay first — menus must close even with an active terminal underneath.
     if (barrierDismissiblePopup) return EscapeDisposition.allowOverlayDismiss;
+    if (terminalShouldReceive) return EscapeDisposition.sendToPty;
     return EscapeDisposition.consume;
   }
 
@@ -128,6 +176,16 @@ class AppEscapePolicy {
       return true;
     });
     return found;
+  }
+
+  /// True when an [EditableText] (TextField / form) owns primary focus.
+  /// Used so Esc while editing a host form is not injected into a background PTY.
+  static bool primaryFocusIsEditableText() {
+    final primary = FocusManager.instance.primaryFocus;
+    final ctx = primary?.context;
+    if (ctx == null) return false;
+    if (ctx.widget is EditableText) return true;
+    return ctx.findAncestorWidgetOfExactType<EditableText>() != null;
   }
 }
 
@@ -149,7 +207,15 @@ class TerminalEscapeSink {
   final bool Function() isActive;
   final bool Function() hasTerminalFocus;
 
-  bool shouldReceiveEscape() => isActive() && hasTerminalFocus();
+  /// Deliver Esc to PTY when the session is active and either the terminal has
+  /// focus, or focus is on non-editable chrome (pad split left pane, tab bar).
+  /// Skip when a text field owns focus (host editor / search) so typing Esc
+  /// there does not poke a background shell.
+  bool shouldReceiveEscape() {
+    if (!isActive()) return false;
+    if (hasTerminalFocus()) return true;
+    return !AppEscapePolicy.primaryFocusIsEditableText();
+  }
 
   void sendEscape() {
     terminal.keyInput(TerminalKey.escape);

@@ -64,7 +64,8 @@ class ActiveTerminalKeyboard {
       return true;
     }
 
-    // Escape: owned by AppEscapePolicy (global). Do not send here.
+    // Escape / Ctrl+[: owned by AppEscapePolicy (global single sender).
+    // Do not send here — avoids double 0x1b with the early FocusManager handler.
     return false;
   }
 }

@@ -157,7 +157,23 @@ class _TerminalPageState extends ConsumerState<TerminalPage>
     }
   }
 
+  void _syncEscapeSink(TerminalSession? active, SessionManager mgr) {
+    if (active == null) {
+      AppEscapePolicy.setTerminalSink(null);
+      return;
+    }
+    final sessionId = active.id;
+    AppEscapePolicy.setTerminalSink(
+      TerminalEscapeSink(
+        terminal: active.terminal,
+        isActive: () => mounted && mgr.active?.id == sessionId,
+        hasTerminalFocus: () => _terminalFocus.hasFocus,
+      ),
+    );
+  }
+
   Widget _toolbar(BuildContext context, TerminalSession? active) {
+
     final scheme = Theme.of(context).colorScheme;
     final dark = Theme.of(context).brightness == Brightness.dark;
     return Material(
@@ -259,19 +275,9 @@ class _TerminalPageState extends ConsumerState<TerminalPage>
             isActive: () => mounted && mgr.active?.id == active.id,
           );
 
-    // Global Esc→PTY sink (single sender; AppEscapePolicy consumes Esc app-wide).
-    if (active == null) {
-      AppEscapePolicy.setTerminalSink(null);
-    } else {
-      final sessionId = active.id;
-      AppEscapePolicy.setTerminalSink(
-        TerminalEscapeSink(
-          terminal: active.terminal,
-          isActive: () => mounted && mgr.active?.id == sessionId,
-          hasTerminalFocus: () => _terminalFocus.hasFocus,
-        ),
-      );
-    }
+    // Keep Esc→PTY sink in sync (side-effect registration; AppEscapePolicy is
+    // the single sender so TerminalView never also emits 0x1b for Esc).
+    _syncEscapeSink(active, mgr);
 
     final body = active == null
         ? Center(

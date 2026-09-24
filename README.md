@@ -49,7 +49,8 @@ Pad 优先的 Flutter SSH / Telnet / SFTP / FTP 终端客户端。
 6. **M5** — 发版打磨
 7. **v0.5.3** — 连接共享（多 shell + SFTP 同会话）
 8. **v0.5.4** — 主机卡片资源状态（CPU / MEM / NET / DISK，共享 SSH exec）
-9. **v0.5.5** — 硬件 Esc 全局策略（永不作 Back；终端发 0x1b）← 当前
+9. **v0.5.5** — 硬件 Esc 全局策略（永不作 Back；终端发 0x1b）
+10. **v0.5.6** — Esc / 硬件键盘打磨版（overlay 优先、Ctrl+[、分栏无焦点）← 当前
 
 ## Pad 布局与键盘（M3）
 
@@ -58,8 +59,8 @@ Pad 优先的 Flutter SSH / Telnet / SFTP / FTP 终端客户端。
 - **安全区**：顶栏控件最小点击热区 **48dp**；OEM 状态栏 inset 为 0 时保底 40dp。
 - **键盘**：
   - Manifest `configChanges` 已含 `keyboard|keyboardHidden|navigation`（插拔不重建 Activity）。
-  - **Esc 全局策略**：整个 App 内硬件 Esc **绝不**当作 Flutter/Android Back；终端焦点时发 `0x1b` 到 PTY（vi 可正常退插入模式）；仅可关闭 barrierDismissible 浮层；系统返回键/手势仍可导航。
-  - `HardwareKeyboard`：**Ctrl-C → SIGINT**（非复制；复制为 Ctrl+Shift+C）。
+  - **Esc 全局策略**：整个 App 内硬件 Esc **绝不**当作 Flutter/Android Back；`DismissIntent` shortcut + action 双保险；仅可关闭 barrierDismissible 浮层（菜单优先于终端）；终端会话活跃且非文本框焦点时发 `0x1b` 到 PTY（含 Pad 分栏终端可见但未聚焦）；**Ctrl+[** → Esc（vi）；系统返回键/手势仍可导航。
+  - `HardwareKeyboard`：**Ctrl-C → SIGINT**（非复制；复制为 Ctrl+Shift+C）。Esc / Ctrl+[ 由 `AppEscapePolicy` 单路径发送，避免与 TerminalView 双发。
   - Resume / 可见性：unfocus→`InputMethodManager.restartInput`→focus，清 IME 组字。
   - Metrics 变化：重建 fit 行列并触发 PTY `resize`。
   - 软键盘：`TextInputType.visiblePassword`（少联想 / 智能标点）。
@@ -130,12 +131,17 @@ flutter build apk --release
 若未配置 `key.properties`，release 仍可用 Android debug 签名构建（仅供内测）。用户可用自己的密钥重新签名后再分发。
 
 
-## 硬件 Esc 自测（v0.5.5+）
+## 硬件 Esc 自测清单（v0.5.6 打磨版）
 
-1. 外接 / 蓝牙键盘连接 SSH，打开 `vi`（或 `vim`），按 `i` 进入插入模式。
-2. 按键盘 **Esc**：应进入正常模式（可 `:wq`），**不得**退出 App / 切走终端页。
-3. 在主机列表 / 设置页按 Esc：界面保持，不得 `Navigator.pop` / 退到桌面。
-4. 系统返回键或手势返回：仍可按原 UX 离开或切 pane。
+1. 外接 / 蓝牙键盘连接 SSH，打开 `vi` / `vim`，`i` 进插入模式 → **Esc** 退回正常模式，**不得**退出 App / 切走终端。
+2. 同上，试 **Ctrl+[**：应等同 Esc（退插入模式），且只生效一次（无双 Esc）。
+3. 主机列表 / 设置 / 文件页按 Esc：界面保持，不得 `Navigator.pop` / 退桌面。
+4. 打开终端溢出菜单（⋯）按 Esc：仅关闭菜单，不离开终端、不杀会话。
+5. TOFU 主机密钥对话框（不可点遮罩关闭）：Esc **不得**误关 / 误拒绝；需点按钮。
+6. Pad 分栏：终端在右侧可见，焦点在左侧主机列表时按 Esc：应送到 PTY（vi 仍可退模式），不得 Back。
+7. 主机编辑页（TextField 焦点）按 Esc：不得注入后台 PTY，也不得 pop 编辑页。
+8. 系统返回键或手势返回：仍可按原 UX 离开或切 pane。
+9. ExtraKeys 点 Esc：照常发 `0x1b`（软键路径与硬件策略独立）。
 
 ## 保活自测（v0.5.1+）
 

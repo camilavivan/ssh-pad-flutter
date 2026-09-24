@@ -183,18 +183,20 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-
     /**
      * Esc must never become Android Back.
      *
      * Some OEMs / accessibility paths can treat unhandled KEYCODE_ESCAPE like
-     * back. Always deliver Escape to Flutter, then consume it at the Activity
-     * so it cannot be translated into KEYCODE_BACK / onBackPressed.
+     * back. Always deliver Escape to Flutter first (so Dart AppEscapePolicy /
+     * TerminalView path can emit a single 0x1b), then consume at the Activity
+     * so the platform cannot translate it into KEYCODE_BACK / onBackPressed.
+     *
      * Real hardware Back (KEYCODE_BACK) and gesture back are unchanged.
      */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (event.keyCode == KeyEvent.KEYCODE_ESCAPE) {
-            // Deliver to FlutterView / engine first.
+            // Deliver to FlutterView / engine; ignore handled flag — always
+            // consume so unhandled Esc cannot fall through to Back mapping.
             super.dispatchKeyEvent(event)
             return true
         }
@@ -203,7 +205,7 @@ class MainActivity : FlutterActivity() {
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         if (keyCode == KeyEvent.KEYCODE_ESCAPE) {
-            // Consume; Flutter already received it via dispatchKeyEvent.
+            // Defensive consume if anything reaches here without dispatch consume.
             return true
         }
         return super.onKeyDown(keyCode, event)
@@ -220,4 +222,3 @@ class MainActivity : FlutterActivity() {
         private const val TAG = "SshPadMain"
     }
 }
-

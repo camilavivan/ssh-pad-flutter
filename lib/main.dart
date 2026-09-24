@@ -78,6 +78,9 @@ class _SshPadAppState extends ConsumerState<SshPadApp> {
       shortcuts: AppEscapePolicy.shortcutsWithoutEscapeBack(
         Map<ShortcutActivator, Intent>.of(WidgetsApp.defaultShortcuts),
       ),
+      actions: AppEscapePolicy.actionsWithoutEscapeBack(
+        Map<Type, Action<Intent>>.of(WidgetsApp.defaultActions),
+      ),
       home: const PadShell(),
       debugShowCheckedModeBanner: false,
     );
