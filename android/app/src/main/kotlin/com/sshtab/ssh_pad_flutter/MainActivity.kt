@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
 import android.util.Log
+import android.view.KeyEvent
 import android.view.inputmethod.InputMethodManager
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -182,7 +183,41 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+
+    /**
+     * Esc must never become Android Back.
+     *
+     * Some OEMs / accessibility paths can treat unhandled KEYCODE_ESCAPE like
+     * back. Always deliver Escape to Flutter, then consume it at the Activity
+     * so it cannot be translated into KEYCODE_BACK / onBackPressed.
+     * Real hardware Back (KEYCODE_BACK) and gesture back are unchanged.
+     */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.keyCode == KeyEvent.KEYCODE_ESCAPE) {
+            // Deliver to FlutterView / engine first.
+            super.dispatchKeyEvent(event)
+            return true
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_ESCAPE) {
+            // Consume; Flutter already received it via dispatchKeyEvent.
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent?): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_ESCAPE) {
+            return true
+        }
+        return super.onKeyUp(keyCode, event)
+    }
+
     companion object {
         private const val TAG = "SshPadMain"
     }
 }
+

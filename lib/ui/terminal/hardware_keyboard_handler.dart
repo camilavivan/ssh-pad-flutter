@@ -12,7 +12,8 @@ import '../../core/session/terminal_session.dart';
 /// - Do **not** handle clipboard chords here (TerminalView already does);
 ///   otherwise Cmd/Ctrl+V pastes twice.
 /// - Plain **Ctrl-C = SIGINT** (ETX / channel signal), never copy.
-/// - Escape is forwarded to the terminal and consumed.
+/// - Escape is **not** handled here — [AppEscapePolicy] is the single Esc→PTY
+///   path (avoids double 0x1b and Flutter Escape→Back).
 class ActiveTerminalKeyboard {
   ActiveTerminalKeyboard({
     required this.terminal,
@@ -63,11 +64,7 @@ class ActiveTerminalKeyboard {
       return true;
     }
 
-    if (event.logicalKey == LogicalKeyboardKey.escape) {
-      terminal.keyInput(TerminalKey.escape);
-      HapticFeedback.lightImpact();
-      return true;
-    }
+    // Escape: owned by AppEscapePolicy (global). Do not send here.
     return false;
   }
 }

@@ -48,7 +48,8 @@ Pad 优先的 Flutter SSH / Telnet / SFTP / FTP 终端客户端。
 5. **M3** — Pad 布局 / 键盘打磨
 6. **M5** — 发版打磨
 7. **v0.5.3** — 连接共享（多 shell + SFTP 同会话）
-8. **v0.5.4** — 主机卡片资源状态（CPU / MEM / NET / DISK，共享 SSH exec）← 当前
+8. **v0.5.4** — 主机卡片资源状态（CPU / MEM / NET / DISK，共享 SSH exec）
+9. **v0.5.5** — 硬件 Esc 全局策略（永不作 Back；终端发 0x1b）← 当前
 
 ## Pad 布局与键盘（M3）
 
@@ -57,7 +58,8 @@ Pad 优先的 Flutter SSH / Telnet / SFTP / FTP 终端客户端。
 - **安全区**：顶栏控件最小点击热区 **48dp**；OEM 状态栏 inset 为 0 时保底 40dp。
 - **键盘**：
   - Manifest `configChanges` 已含 `keyboard|keyboardHidden|navigation`（插拔不重建 Activity）。
-  - `HardwareKeyboard`：Esc 转发；**Ctrl-C → SIGINT**（非复制；复制为 Ctrl+Shift+C）。
+  - **Esc 全局策略**：整个 App 内硬件 Esc **绝不**当作 Flutter/Android Back；终端焦点时发 `0x1b` 到 PTY（vi 可正常退插入模式）；仅可关闭 barrierDismissible 浮层；系统返回键/手势仍可导航。
+  - `HardwareKeyboard`：**Ctrl-C → SIGINT**（非复制；复制为 Ctrl+Shift+C）。
   - Resume / 可见性：unfocus→`InputMethodManager.restartInput`→focus，清 IME 组字。
   - Metrics 变化：重建 fit 行列并触发 PTY `resize`。
   - 软键盘：`TextInputType.visiblePassword`（少联想 / 智能标点）。
@@ -127,6 +129,13 @@ flutter build apk --release
 
 若未配置 `key.properties`，release 仍可用 Android debug 签名构建（仅供内测）。用户可用自己的密钥重新签名后再分发。
 
+
+## 硬件 Esc 自测（v0.5.5+）
+
+1. 外接 / 蓝牙键盘连接 SSH，打开 `vi`（或 `vim`），按 `i` 进入插入模式。
+2. 按键盘 **Esc**：应进入正常模式（可 `:wq`），**不得**退出 App / 切走终端页。
+3. 在主机列表 / 设置页按 Esc：界面保持，不得 `Navigator.pop` / 退到桌面。
+4. 系统返回键或手势返回：仍可按原 UX 离开或切 pane。
 
 ## 保活自测（v0.5.1+）
 

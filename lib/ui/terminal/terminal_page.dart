@@ -10,6 +10,7 @@ import '../../data/host_profile.dart';
 import '../files/files_page.dart';
 import '../pad/pad_breakpoints.dart';
 import '../widgets/session_status.dart';
+import '../keyboard/app_escape_policy.dart';
 import 'extra_keys.dart';
 import 'hardware_keyboard_handler.dart';
 
@@ -58,6 +59,7 @@ class _TerminalPageState extends ConsumerState<TerminalPage>
     if (_handlerRegistered) {
       HardwareKeyboard.instance.removeHandler(_onKey);
     }
+    AppEscapePolicy.setTerminalSink(null);
     _terminalFocus.dispose();
     super.dispose();
   }
@@ -256,6 +258,20 @@ class _TerminalPageState extends ConsumerState<TerminalPage>
             session: active,
             isActive: () => mounted && mgr.active?.id == active.id,
           );
+
+    // Global Esc→PTY sink (single sender; AppEscapePolicy consumes Esc app-wide).
+    if (active == null) {
+      AppEscapePolicy.setTerminalSink(null);
+    } else {
+      final sessionId = active.id;
+      AppEscapePolicy.setTerminalSink(
+        TerminalEscapeSink(
+          terminal: active.terminal,
+          isActive: () => mounted && mgr.active?.id == sessionId,
+          hasTerminalFocus: () => _terminalFocus.hasFocus,
+        ),
+      );
+    }
 
     final body = active == null
         ? Center(

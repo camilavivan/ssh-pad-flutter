@@ -8,6 +8,7 @@ import 'core/security/host_key_store.dart';
 import 'core/security/host_key_verifier.dart';
 import 'core/ssh/ssh_connector.dart';
 import 'data/host_store.dart';
+import 'ui/keyboard/app_escape_policy.dart';
 import 'ui/pad/pad_shell.dart';
 import 'ui/security/host_key_dialog.dart';
 import 'ui/theme.dart';
@@ -27,6 +28,8 @@ final hostKeyVerifierProvider = Provider<HostKeyVerifier>((ref) {
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final prefs = await SharedPreferences.getInstance();
+  AppEscapePolicy.bindNavigator(navigatorKey);
+  AppEscapePolicy.install();
   runApp(
     ProviderScope(
       overrides: [
@@ -71,6 +74,10 @@ class _SshPadAppState extends ConsumerState<SshPadApp> {
       theme: AppThemes.light,
       darkTheme: AppThemes.dark,
       themeMode: themeMode,
+      // Escape must never map to DismissIntent / Back at the app level.
+      shortcuts: AppEscapePolicy.shortcutsWithoutEscapeBack(
+        Map<ShortcutActivator, Intent>.of(WidgetsApp.defaultShortcuts),
+      ),
       home: const PadShell(),
       debugShowCheckedModeBanner: false,
     );
