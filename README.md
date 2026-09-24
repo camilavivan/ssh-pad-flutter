@@ -7,7 +7,8 @@ Pad 优先的 Flutter SSH / Telnet / SFTP / FTP 终端客户端。
 
 ## 产品目标
 
-- **Pad 优先 UI**：宽屏分栏（节点/文件 + 终端）、外接/蓝牙键盘一等公民。
+- **Pad 优先 UI**：宽屏（≥600dp）左栏节点/会话 + 可拖分割条 + 右栏终端/文件；窄屏 NavigationRail。
+- **外接 / 蓝牙键盘**：`configChanges` 含 keyboard；Ctrl-C = SIGINT；resume 清 IME 组字；插拔/旋转 refit PTY。
 - **首发协议**：SSH、SFTP、TELNET、FTP；主机档案含 `protocol` 字段。
 - **保活是重中之重**：切应用/熄屏不断开；同进程 ForegroundService（`dataSync`）+ Wake/Wifi 锁 + OEM 引导；默认**不**无限静默自动重连。
 - 延后：SERIAL / LOCAL / RLOGIN（选择器可见，标注「稍后」）。
@@ -45,20 +46,35 @@ Pad 优先的 Flutter SSH / Telnet / SFTP / FTP 终端客户端。
 1. **M0** — 脚手架 + HostProfile + 保活骨架（FGS stub）
 2. **M1** — 最小 SSH 终端
 3. **M1b** — **保活 FGS 完整接通（关键路径）**
-4. **M2** — SFTP / TELNET / FTP ← 当前
-5. **M3** — Pad 布局 / 键盘打磨
+4. **M2** — SFTP / TELNET / FTP
+5. **M3** — Pad 布局 / 键盘打磨 ← 当前
 6. **M5** — 发版打磨
+
+## Pad 布局与键盘（M3）
+
+- **≥600dp**：左栏主机卡片 / 会话列表，中间 14dp 拖拽分割条（宽度持久化），右栏终端或文件。
+- **&lt;600dp**：`NavigationRail`（主机 / 终端 / 文件 / 设置），避免破坏手机布局。
+- **安全区**：顶栏控件最小点击热区 **48dp**；OEM 状态栏 inset 为 0 时保底 40dp。
+- **键盘**：
+  - Manifest `configChanges` 已含 `keyboard|keyboardHidden|navigation`（插拔不重建 Activity）。
+  - `HardwareKeyboard`：Esc 转发；**Ctrl-C → SIGINT**（非复制；复制为 Ctrl+Shift+C）。
+  - Resume / 可见性：unfocus→`InputMethodManager.restartInput`→focus，清 IME 组字。
+  - Metrics 变化：重建 fit 行列并触发 PTY `resize`。
+  - 软键盘：`TextInputType.visiblePassword`（少联想 / 智能标点）。
+  - 检测到硬件键盘时可隐藏 ExtraKeys。
 
 ## 如何运行
 
 ```bash
 # 依赖：Flutter stable、JDK 17、Android SDK（minSdk 26）
+export PATH="/home/box/flutter/bin:$PATH"
 flutter pub get
 flutter analyze
+flutter test
 flutter run   # 需连接设备 / 模拟器
 ```
 
-保活相关设置入口：主页右上角盾牌图标。
+保活相关设置：左栏盾牌图标，或窄屏「设置」。
 
 ## 仓库说明
 

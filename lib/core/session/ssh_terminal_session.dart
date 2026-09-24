@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:xterm/xterm.dart';
 
 import '../../data/host_profile.dart';
+import 'terminal_factory.dart';
 import 'terminal_session.dart';
 
 /// One SSH PTY shell bound to an [xterm] [Terminal].
@@ -17,7 +18,7 @@ class SshTerminalSession implements TerminalSession {
     required this.id,
     required this.profile,
     Terminal? terminal,
-  }) : terminal = terminal ?? Terminal(maxLines: 10000);
+  }) : terminal = terminal ?? createPadTerminal();
 
   @override
   final String id;

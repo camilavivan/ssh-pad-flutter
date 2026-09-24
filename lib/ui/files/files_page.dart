@@ -13,9 +13,10 @@ import '../../data/host_profile.dart';
 
 /// Remote file browser for SFTP / FTP (list, mkdir, delete, upload, download).
 class FilesPage extends ConsumerStatefulWidget {
-  const FilesPage({super.key, this.sessionId});
+  const FilesPage({super.key, this.sessionId, this.embedded = false});
 
   final String? sessionId;
+  final bool embedded;
 
   @override
   ConsumerState<FilesPage> createState() => _FilesPageState();
@@ -207,7 +208,9 @@ class _FilesPageState extends ConsumerState<FilesPage> {
     if (s != null) {
       await ref.read(sessionManagerProvider).closeFile(s.id);
     }
-    if (mounted) Navigator.of(context).maybePop();
+    if (mounted && !widget.embedded) {
+      Navigator.of(context).maybePop();
+    }
   }
 
   @override
@@ -217,125 +220,151 @@ class _FilesPageState extends ConsumerState<FilesPage> {
     final cleartext = session?.profile.protocol == HostProtocol.ftp &&
         session?.profile.ftpSecure == FtpSecureMode.none;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(session?.keepAliveTitle ?? '文件'),
-        actions: [
-          IconButton(
-            tooltip: '上级目录',
-            onPressed: _busy ? null : _goUp,
-            icon: const Icon(Icons.arrow_upward),
-          ),
-          IconButton(
-            tooltip: '刷新',
-            onPressed: _busy ? null : _reload,
-            icon: const Icon(Icons.refresh),
-          ),
-          IconButton(
-            tooltip: '新建文件夹',
-            onPressed: _busy ? null : _mkdir,
-            icon: const Icon(Icons.create_new_folder_outlined),
-          ),
-          IconButton(
-            tooltip: '上传',
-            onPressed: _busy ? null : _upload,
-            icon: const Icon(Icons.upload_file),
-          ),
-          IconButton(
-            tooltip: '断开',
-            onPressed: _close,
-            icon: const Icon(Icons.link_off),
-          ),
-        ],
+    final actions = <Widget>[
+      IconButton(
+        tooltip: '上级目录',
+        onPressed: _busy ? null : _goUp,
+        icon: const Icon(Icons.arrow_upward),
       ),
-      body: Column(
-        children: [
-          if (cleartext)
-            Material(
-              color: Theme.of(context).colorScheme.errorContainer,
-              child: const SizedBox(
-                width: double.infinity,
-                child: Padding(
-                  padding: EdgeInsets.all(8),
-                  child: Text(
-                    '警告：明文 FTP。生产环境请使用 FTPS / FTPES / SFTP。',
-                    style: TextStyle(fontSize: 12),
-                  ),
+      IconButton(
+        tooltip: '刷新',
+        onPressed: _busy ? null : _reload,
+        icon: const Icon(Icons.refresh),
+      ),
+      IconButton(
+        tooltip: '新建文件夹',
+        onPressed: _busy ? null : _mkdir,
+        icon: const Icon(Icons.create_new_folder_outlined),
+      ),
+      IconButton(
+        tooltip: '上传',
+        onPressed: _busy ? null : _upload,
+        icon: const Icon(Icons.upload_file),
+      ),
+      IconButton(
+        tooltip: '断开',
+        onPressed: _close,
+        icon: const Icon(Icons.link_off),
+      ),
+    ];
+
+    final body = Column(
+      children: [
+        if (cleartext)
+          Material(
+            color: Theme.of(context).colorScheme.errorContainer,
+            child: const SizedBox(
+              width: double.infinity,
+              child: Padding(
+                padding: EdgeInsets.all(8),
+                child: Text(
+                  '警告：明文 FTP。生产环境请使用 FTPS / FTPES / SFTP。',
+                  style: TextStyle(fontSize: 12),
                 ),
               ),
             ),
+          ),
+        Material(
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          child: SizedBox(
+            width: double.infinity,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Text(
+                session?.backend.currentPath ?? '',
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+              ),
+            ),
+          ),
+        ),
+        if (_busy || _loading) const LinearProgressIndicator(minHeight: 2),
+        if (_error != null)
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Text(
+              _error!,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          ),
+        Expanded(
+          child: _entries.isEmpty && !_loading
+              ? const Center(child: Text('空目录'))
+              : ListView.separated(
+                  itemCount: _entries.length,
+                  separatorBuilder: (_, _) => const Divider(height: 1),
+                  itemBuilder: (context, i) {
+                    final e = _entries[i];
+                    return ListTile(
+                      leading: Icon(
+                        e.isDirectory
+                            ? Icons.folder
+                            : Icons.insert_drive_file_outlined,
+                      ),
+                      title: Text(e.name),
+                      subtitle: Text(
+                        e.isDirectory ? '目录' : _formatSize(e.size),
+                      ),
+                      onTap: e.isDirectory ? () => _openDir(e) : null,
+                      trailing: PopupMenuButton<String>(
+                        onSelected: (v) {
+                          if (v == 'download' && !e.isDirectory) {
+                            _download(e);
+                          } else if (v == 'delete') {
+                            _delete(e);
+                          }
+                        },
+                        itemBuilder: (_) => [
+                          if (!e.isDirectory)
+                            const PopupMenuItem(
+                              value: 'download',
+                              child: Text('下载'),
+                            ),
+                          const PopupMenuItem(
+                            value: 'delete',
+                            child: Text('删除'),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+
+    if (widget.embedded) {
+      return Column(
+        children: [
           Material(
             color: Theme.of(context).colorScheme.surfaceContainerHighest,
             child: SizedBox(
-              width: double.infinity,
-              child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                child: Text(
-                  session?.backend.currentPath ?? '',
-                  style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
-                ),
-              ),
-            ),
-          ),
-          if (_busy || _loading) const LinearProgressIndicator(minHeight: 2),
-          if (_error != null)
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: Text(
-                _error!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
-              ),
-            ),
-          Expanded(
-            child: _entries.isEmpty && !_loading
-                ? const Center(child: Text('空目录'))
-                : ListView.separated(
-                    itemCount: _entries.length,
-                    separatorBuilder: (_, _) => const Divider(height: 1),
-                    itemBuilder: (context, i) {
-                      final e = _entries[i];
-                      return ListTile(
-                        leading: Icon(
-                          e.isDirectory
-                              ? Icons.folder
-                              : Icons.insert_drive_file_outlined,
-                        ),
-                        title: Text(e.name),
-                        subtitle: Text(
-                          e.isDirectory
-                              ? '目录'
-                              : _formatSize(e.size),
-                        ),
-                        onTap: e.isDirectory
-                            ? () => _openDir(e)
-                            : null,
-                        trailing: PopupMenuButton<String>(
-                          onSelected: (v) {
-                            if (v == 'download' && !e.isDirectory) {
-                              _download(e);
-                            } else if (v == 'delete') {
-                              _delete(e);
-                            }
-                          },
-                          itemBuilder: (_) => [
-                            if (!e.isDirectory)
-                              const PopupMenuItem(
-                                value: 'download',
-                                child: Text('下载'),
-                              ),
-                            const PopupMenuItem(
-                              value: 'delete',
-                              child: Text('删除'),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
+              height: 48,
+              child: Row(
+                children: [
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      session?.keepAliveTitle ?? '文件',
+                      style: Theme.of(context).textTheme.titleMedium,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
+                  ...actions,
+                ],
+              ),
+            ),
           ),
+          Expanded(child: body),
         ],
+      );
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(session?.keepAliveTitle ?? '文件'),
+        actions: actions,
       ),
+      body: body,
     );
   }
 

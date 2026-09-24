@@ -3,10 +3,12 @@ package com.sshtab.ssh_pad_flutter
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
+import android.view.inputmethod.InputMethodManager
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
@@ -14,22 +16,24 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 /**
- * MethodChannel bridge for keepalive FGS.
- * Channel: com.sshtab.ssh_pad_flutter/keepalive
+ * MethodChannel bridges:
+ * - keepalive FGS: com.sshtab.ssh_pad_flutter/keepalive
+ * - IME / hardware keyboard: com.sshtab.ssh_pad_flutter/ime
  */
 class MainActivity : FlutterActivity() {
-    private val channelName = "com.sshtab.ssh_pad_flutter/keepalive"
-    private var channel: MethodChannel? = null
+    private val keepaliveChannelName = "com.sshtab.ssh_pad_flutter/keepalive"
+    private val imeChannelName = "com.sshtab.ssh_pad_flutter/ime"
+    private var keepaliveChannel: MethodChannel? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
+        keepaliveChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, keepaliveChannelName)
         SessionForegroundService.stopCallback = {
             runOnUiThread {
-                channel?.invokeMethod("stopRequested", null)
+                keepaliveChannel?.invokeMethod("stopRequested", null)
             }
         }
-        channel?.setMethodCallHandler { call, result ->
+        keepaliveChannel?.setMethodCallHandler { call, result ->
             when (call.method) {
                 "updateSessions" -> {
                     @Suppress("UNCHECKED_CAST")
@@ -58,6 +62,42 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, imeChannelName)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "restartInput" -> {
+                        restartInput()
+                        result.success(null)
+                    }
+                    "hasHardwareKeyboard" -> {
+                        result.success(hasHardwareKeyboard())
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+    }
+
+    /** Clear IME composition by restarting the current input connection. */
+    private fun restartInput() {
+        try {
+            val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
+            val focus = currentFocus ?: window?.decorView
+            if (focus != null) {
+                imm.restartInput(focus)
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    /**
+     * Physical / Bluetooth keyboard attached.
+     * HARDKEYBOARDHIDDEN_NO or keyboard != NOKEYS.
+     */
+    private fun hasHardwareKeyboard(): Boolean {
+        val cfg = resources.configuration
+        if (cfg.hardKeyboardHidden == Configuration.HARDKEYBOARDHIDDEN_NO) return true
+        return cfg.keyboard != Configuration.KEYBOARD_NOKEYS
     }
 
     private fun requestNotifications(): Boolean {

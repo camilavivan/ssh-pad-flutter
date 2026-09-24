@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:xterm/xterm.dart';
 
 import '../../data/host_profile.dart';
+import '../session/terminal_factory.dart';
 import '../session/terminal_session.dart';
 
 /// Telnet option codes (RFC 854 / 855 / 1091 / 1073).
@@ -25,7 +26,7 @@ class TelnetTerminalSession implements TerminalSession {
     required this.id,
     required this.profile,
     Terminal? terminal,
-  }) : terminal = terminal ?? Terminal(maxLines: 10000);
+  }) : terminal = terminal ?? createPadTerminal();
 
   @override
   final String id;

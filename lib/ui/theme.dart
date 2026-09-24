@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 /// Primer-inspired light / dark palettes (simplified for M0).
 class AppThemes {
@@ -75,3 +76,5 @@ class AppThemes {
         dividerColor: _borderDark,
       );
 }
+
+final themeModeProvider = StateProvider<ThemeMode>((ref) => ThemeMode.system);

@@ -313,11 +313,12 @@ saveSecret: bool
 - FTP：文件 UI 复用；明文警告；可选 FTPS。  
 - 协议选择器与默认端口、表单字段显隐（SSH 密钥区 / FTP 安全选项等）。
 
-### M3 — Pad 布局 + 键盘打磨
+### M3 — Pad 布局 + 键盘打磨 ✅（2026-09-24）
 
 - ≥600dp 左栏可拖拽；节点卡片；窄屏 rail。  
 - 蓝牙键盘专项：Enter/BS/Ctrl/方向、插拔 resize、IME 残留回归。  
-- 状态栏 inset / 点击热区（对照 ssh-pad README）。
+- 状态栏 inset / 点击热区（对照 ssh-pad README）。  
+- 实现落点：`lib/ui/pad/pad_shell.dart`、`hardware_keyboard_handler.dart`、`MainActivity` IME channel。
 
 ### M4 — （已并入 M1b）保活深化 / 回归
 

@@ -3,17 +3,22 @@ import 'package:flutter/services.dart';
 import 'package:xterm/xterm.dart';
 
 import '../../core/session/terminal_session.dart';
+import '../pad/pad_breakpoints.dart';
 
 /// Pad-friendly ExtraKeys strip: Esc, Tab, Ctrl (sticky), arrows, Ctrl-C.
+///
+/// When [hideForHardwareKeyboard] is true the bar collapses (Bluetooth plugged).
 class ExtraKeysBar extends StatefulWidget {
   const ExtraKeysBar({
     super.key,
     required this.terminal,
     this.session,
+    this.hideForHardwareKeyboard = false,
   });
 
   final Terminal terminal;
   final TerminalSession? session;
+  final bool hideForHardwareKeyboard;
 
   @override
   State<ExtraKeysBar> createState() => _ExtraKeysBarState();
@@ -46,6 +51,10 @@ class _ExtraKeysBarState extends State<ExtraKeysBar> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.hideForHardwareKeyboard) {
+      return const SizedBox.shrink();
+    }
+
     final scheme = Theme.of(context).colorScheme;
     Widget chip(String label, VoidCallback onPressed, {bool active = false}) {
       return Padding(
@@ -56,14 +65,19 @@ class _ExtraKeysBarState extends State<ExtraKeysBar> {
           child: InkWell(
             borderRadius: BorderRadius.circular(6),
             onTap: onPressed,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-              child: Text(
-                label,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: active ? scheme.onPrimaryContainer : scheme.onSurface,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: PadBreakpoints.minTap - 4),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                child: Center(
+                  child: Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: active ? scheme.onPrimaryContainer : scheme.onSurface,
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -78,10 +92,10 @@ class _ExtraKeysBarState extends State<ExtraKeysBar> {
       child: SafeArea(
         top: false,
         child: SizedBox(
-          height: 44,
+          height: PadBreakpoints.minTap + 4,
           child: ListView(
             scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
             children: [
               chip('Esc', () => _sendKey(TerminalKey.escape)),
               chip('Tab', () => _sendKey(TerminalKey.tab)),
@@ -98,10 +112,9 @@ class _ExtraKeysBarState extends State<ExtraKeysBar> {
                 _tap(() {
                   final s = widget.session;
                   if (s != null && s.isConnected) {
-                    // Prefer ETX on the wire for interactive shells; kill as backup.
-                    widget.terminal.charInput(0x43, ctrl: true); // ^C
+                    s.sendInterrupt();
                   } else {
-                    _sendChar(0x43);
+                    widget.terminal.charInput(0x43, ctrl: true);
                   }
                 });
               }),
