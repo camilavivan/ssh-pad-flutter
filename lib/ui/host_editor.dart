@@ -317,7 +317,7 @@ class _HostEditorPageState extends ConsumerState<HostEditorPage> {
           ],
           SwitchListTile(
             title: const Text('保存密钥 / 密码（本地）'),
-            subtitle: const Text('后续将迁移至安全存储'),
+            subtitle: const Text('使用 flutter_secure_storage 加密保存'),
             value: _saveSecret,
             onChanged: (v) => setState(() => _saveSecret = v),
           ),

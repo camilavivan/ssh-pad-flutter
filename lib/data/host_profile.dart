@@ -149,7 +149,9 @@ class HostProfile {
   /// Clone as SFTP host (for "Files" from an SSH session).
   HostProfile asSftp() => copyWith(protocol: HostProtocol.sftp);
 
-  Map<String, dynamic> toJson() => {
+  /// Metadata for SharedPreferences. Secrets go to [SecretStore] when
+  /// [includeSecrets] is false (default).
+  Map<String, dynamic> toJson({bool includeSecrets = false}) => {
         'id': id,
         'name': name,
         'protocol': protocol.name,
@@ -157,14 +159,16 @@ class HostProfile {
         'port': port,
         'username': username,
         'auth': auth.name,
-        if (password != null) 'password': password,
-        if (privateKey != null) 'privateKey': privateKey,
-        if (passphrase != null) 'passphrase': passphrase,
+        if (includeSecrets && password != null) 'password': password,
+        if (includeSecrets && privateKey != null) 'privateKey': privateKey,
+        if (includeSecrets && passphrase != null) 'passphrase': passphrase,
         'ftpSecure': ftpSecure.name,
         'ftpPassive': ftpPassive,
         if (serialDeviceId != null) 'serialDeviceId': serialDeviceId,
         if (baudRate != null) 'baudRate': baudRate,
         'saveSecret': saveSecret,
+        // Marker: secrets live in flutter_secure_storage when saveSecret.
+        'secretsInSecureStore': true,
       };
 
   factory HostProfile.fromJson(Map<String, dynamic> json) {

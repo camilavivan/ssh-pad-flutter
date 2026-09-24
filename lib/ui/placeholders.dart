@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/keepalive/keepalive_controller.dart';
+import 'session_log_panel.dart';
 
 /// Keepalive settings: battery, OEM autostart, notification, optional weak audio.
 class KeepAliveSettingsPage extends ConsumerWidget {
@@ -63,6 +64,12 @@ class KeepAliveSettingsPage extends ConsumerWidget {
               );
             }
           },
+        ),
+        ListTile(
+          leading: const Icon(Icons.receipt_long_outlined),
+          title: const Text('会话日志'),
+          subtitle: const Text('最近连接 / 主机密钥 / 文件操作'),
+          onTap: () => showSessionLogSheet(context),
         ),
         SwitchListTile(
           secondary: const Icon(Icons.volume_mute_outlined),

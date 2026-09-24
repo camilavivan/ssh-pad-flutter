@@ -8,10 +8,15 @@ import 'package:path_provider/path_provider.dart';
 import '../../core/session/file_backend.dart';
 import '../../core/session/file_browser_session.dart';
 import '../../core/session/session_backend.dart';
+import '../../core/session/session_log.dart';
 import '../../core/session/session_manager.dart';
 import '../../data/host_profile.dart';
+import '../pad/pad_breakpoints.dart';
 
-/// Remote file browser for SFTP / FTP (list, mkdir, delete, upload, download).
+/// Dual-pane local + remote file browser (SFTP / FTP).
+///
+/// Wide (≥600dp): left local, right remote. Narrow: remote-only with
+/// upload picker still available (toggle local sheet).
 class FilesPage extends ConsumerStatefulWidget {
   const FilesPage({super.key, this.sessionId, this.embedded = false});
 
@@ -22,11 +27,30 @@ class FilesPage extends ConsumerStatefulWidget {
   ConsumerState<FilesPage> createState() => _FilesPageState();
 }
 
+class _LocalEntry {
+  const _LocalEntry({
+    required this.name,
+    required this.path,
+    required this.isDirectory,
+    this.size,
+  });
+
+  final String name;
+  final String path;
+  final bool isDirectory;
+  final int? size;
+}
+
 class _FilesPageState extends ConsumerState<FilesPage> {
-  List<RemoteFileEntry> _entries = [];
-  bool _loading = true;
-  String? _error;
+  List<RemoteFileEntry> _remote = [];
+  List<_LocalEntry> _local = [];
+  bool _loadingRemote = true;
+  bool _loadingLocal = true;
+  String? _remoteError;
+  String? _localError;
   bool _busy = false;
+  String _localPath = '';
+  bool _showLocalNarrow = false;
 
   FileBrowserSession? get _session {
     final mgr = ref.read(sessionManagerProvider);
@@ -41,60 +65,142 @@ class _FilesPageState extends ConsumerState<FilesPage> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _reload());
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _initLocalRoot();
+      await Future.wait([_reloadRemote(), _reloadLocal()]);
+    });
   }
 
-  Future<void> _reload() async {
+  Future<void> _initLocalRoot() async {
+    try {
+      Directory? base;
+      try {
+        base = await getDownloadsDirectory();
+      } catch (_) {}
+      base ??= await getApplicationDocumentsDirectory();
+      final dir = Directory('${base.path}/SSHPad');
+      if (!await dir.exists()) {
+        await dir.create(recursive: true);
+      }
+      if (mounted) setState(() => _localPath = dir.path);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _localError = e.toString();
+          _loadingLocal = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _reloadRemote() async {
     final session = _session;
     if (session == null) {
       setState(() {
-        _loading = false;
-        _error = '无文件会话';
+        _loadingRemote = false;
+        _remoteError = '无文件会话';
       });
       return;
     }
     if (session.phase == SessionPhase.connecting) {
       setState(() {
-        _loading = true;
-        _error = null;
+        _loadingRemote = true;
+        _remoteError = null;
       });
-      // Wait briefly for connect to finish.
       await Future<void>.delayed(const Duration(milliseconds: 200));
     }
     if (session.phase == SessionPhase.error) {
       setState(() {
-        _loading = false;
-        _error = session.errorMessage ?? '连接失败';
+        _loadingRemote = false;
+        _remoteError = session.errorMessage ?? '连接失败';
       });
       return;
     }
     setState(() {
-      _loading = true;
-      _error = null;
+      _loadingRemote = true;
+      _remoteError = null;
     });
     try {
       final list = await session.backend.list();
       if (!mounted) return;
       setState(() {
-        _entries = list;
-        _loading = false;
+        _remote = list;
+        _loadingRemote = false;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.toString();
-        _loading = false;
+        _remoteError = e.toString();
+        _loadingRemote = false;
+      });
+      sessionLog.add('Remote list failed: $e', level: SessionLogLevel.error);
+    }
+  }
+
+  Future<void> _reloadLocal() async {
+    if (_localPath.isEmpty) return;
+    setState(() {
+      _loadingLocal = true;
+      _localError = null;
+    });
+    try {
+      final dir = Directory(_localPath);
+      if (!await dir.exists()) {
+        await dir.create(recursive: true);
+      }
+      final entities = await dir.list().toList();
+      final entries = <_LocalEntry>[];
+      for (final e in entities) {
+        final name = e.path.split(Platform.pathSeparator).last;
+        if (name.startsWith('.')) continue;
+        if (e is Directory) {
+          entries.add(_LocalEntry(name: name, path: e.path, isDirectory: true));
+        } else if (e is File) {
+          final len = await e.length();
+          entries.add(
+            _LocalEntry(
+              name: name,
+              path: e.path,
+              isDirectory: false,
+              size: len,
+            ),
+          );
+        }
+      }
+      entries.sort((a, b) {
+        if (a.isDirectory != b.isDirectory) {
+          return a.isDirectory ? -1 : 1;
+        }
+        return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+      });
+      if (!mounted) return;
+      setState(() {
+        _local = entries;
+        _loadingLocal = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _localError = e.toString();
+        _loadingLocal = false;
       });
     }
   }
 
-  Future<void> _mkdir() async {
-    final name = await _prompt('新建文件夹', '名称');
+  Future<void> _pickLocalFolder() async {
+    final path = await FilePicker.platform.getDirectoryPath();
+    if (path == null) return;
+    setState(() => _localPath = path);
+    await _reloadLocal();
+  }
+
+  Future<void> _mkdirRemote() async {
+    final name = await _prompt('新建远程文件夹', '名称');
     if (name == null || name.isEmpty) return;
     await _run(() => _session!.backend.mkdir(name));
   }
 
-  Future<void> _upload() async {
+  Future<void> _uploadPicked() async {
     final result = await FilePicker.platform.pickFiles(withData: true);
     if (result == null || result.files.isEmpty) return;
     final f = result.files.single;
@@ -103,40 +209,45 @@ class _FilesPageState extends ConsumerState<FilesPage> {
       _snack('无法读取所选文件');
       return;
     }
-    await _run(() => _session!.backend.upload(f.name, bytes));
-  }
-
-  Future<void> _download(RemoteFileEntry entry) async {
     await _run(() async {
-      final bytes = await _session!.backend.download(entry.name);
-      final dir = await _downloadDir();
-      final out = File('${dir.path}/${entry.name}');
-      await out.writeAsBytes(bytes, flush: true);
-      if (mounted) {
-        _snack('已保存到 ${out.path}');
-      }
+      await _session!.backend.upload(f.name, bytes);
+      sessionLog.add('Uploaded ${f.name}');
     });
   }
 
-  Future<Directory> _downloadDir() async {
-    Directory? base;
-    try {
-      base = await getDownloadsDirectory();
-    } catch (_) {}
-    base ??= await getApplicationDocumentsDirectory();
-    final dir = Directory('${base.path}/SSHPad');
-    if (!await dir.exists()) {
-      await dir.create(recursive: true);
+  Future<void> _uploadLocal(_LocalEntry entry) async {
+    if (entry.isDirectory) {
+      _snack('暂不支持上传整个目录');
+      return;
     }
-    return dir;
+    await _run(() async {
+      final bytes = await File(entry.path).readAsBytes();
+      await _session!.backend.upload(entry.name, bytes);
+      sessionLog.add('Uploaded ${entry.name} → remote');
+    });
   }
 
-  Future<void> _delete(RemoteFileEntry entry) async {
+  Future<void> _downloadToLocal(RemoteFileEntry entry) async {
+    if (entry.isDirectory) {
+      _snack('暂不支持下载整个目录');
+      return;
+    }
+    await _run(() async {
+      final bytes = await _session!.backend.download(entry.name);
+      final out = File('$_localPath/${entry.name}');
+      await out.writeAsBytes(bytes, flush: true);
+      sessionLog.add('Downloaded ${entry.name} → ${out.path}');
+      if (mounted) _snack('已保存到 ${out.path}');
+      await _reloadLocal();
+    });
+  }
+
+  Future<void> _deleteRemote(RemoteFileEntry entry) async {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('删除'),
-        content: Text('确定删除 ${entry.name}？'),
+        content: Text('确定删除远程 ${entry.name}？'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -153,12 +264,24 @@ class _FilesPageState extends ConsumerState<FilesPage> {
     await _run(() => _session!.backend.delete(entry));
   }
 
-  Future<void> _openDir(RemoteFileEntry entry) async {
+  Future<void> _openRemoteDir(RemoteFileEntry entry) async {
     await _run(() => _session!.backend.changeDirectory(entry.name));
   }
 
-  Future<void> _goUp() async {
+  Future<void> _goUpRemote() async {
     await _run(() => _session!.backend.changeDirectory('..'));
+  }
+
+  Future<void> _openLocalDir(_LocalEntry entry) async {
+    setState(() => _localPath = entry.path);
+    await _reloadLocal();
+  }
+
+  Future<void> _goUpLocal() async {
+    final parent = Directory(_localPath).parent.path;
+    if (parent.isEmpty || parent == _localPath) return;
+    setState(() => _localPath = parent);
+    await _reloadLocal();
   }
 
   Future<void> _run(Future<void> Function() action) async {
@@ -166,8 +289,9 @@ class _FilesPageState extends ConsumerState<FilesPage> {
     setState(() => _busy = true);
     try {
       await action();
-      await _reload();
+      await _reloadRemote();
     } catch (e) {
+      sessionLog.add('File op failed: $e', level: SessionLogLevel.error);
       if (mounted) _snack('操作失败: $e');
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -200,7 +324,13 @@ class _FilesPageState extends ConsumerState<FilesPage> {
   }
 
   void _snack(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 4),
+      ),
+    );
   }
 
   Future<void> _close() async {
@@ -213,42 +343,118 @@ class _FilesPageState extends ConsumerState<FilesPage> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    ref.watch(sessionManagerProvider);
+  String _formatSize(int? size) {
+    if (size == null) return '';
+    if (size < 1024) return '$size B';
+    if (size < 1024 * 1024) {
+      return '${(size / 1024).toStringAsFixed(1)} KB';
+    }
+    return '${(size / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+
+  Widget _pathBar(String path, {Color? color}) {
+    return Material(
+      color: color ?? Theme.of(context).colorScheme.surfaceContainerHighest,
+      child: SizedBox(
+        width: double.infinity,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Text(
+            path,
+            style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _localPane() {
+    return Column(
+      children: [
+        Material(
+          color: Theme.of(context).colorScheme.surfaceContainerHigh,
+          child: SizedBox(
+            height: 48,
+            child: Row(
+              children: [
+                const SizedBox(width: 8),
+                const Icon(Icons.phone_android, size: 18),
+                const SizedBox(width: 6),
+                const Expanded(
+                  child: Text('本地', style: TextStyle(fontWeight: FontWeight.w600)),
+                ),
+                IconButton(
+                  tooltip: '上级',
+                  onPressed: _busy ? null : _goUpLocal,
+                  icon: const Icon(Icons.arrow_upward),
+                ),
+                IconButton(
+                  tooltip: '刷新',
+                  onPressed: _busy ? null : _reloadLocal,
+                  icon: const Icon(Icons.refresh),
+                ),
+                IconButton(
+                  tooltip: '选择文件夹',
+                  onPressed: _busy ? null : _pickLocalFolder,
+                  icon: const Icon(Icons.folder_open),
+                ),
+              ],
+            ),
+          ),
+        ),
+        _pathBar(_localPath),
+        if (_loadingLocal) const LinearProgressIndicator(minHeight: 2),
+        if (_localError != null)
+          Padding(
+            padding: const EdgeInsets.all(8),
+            child: Text(
+              _localError!,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          ),
+        Expanded(
+          child: _local.isEmpty && !_loadingLocal
+              ? const Center(child: Text('空目录'))
+              : ListView.separated(
+                  itemCount: _local.length,
+                  separatorBuilder: (_, _) => const Divider(height: 1),
+                  itemBuilder: (context, i) {
+                    final e = _local[i];
+                    return ListTile(
+                      dense: true,
+                      leading: Icon(
+                        e.isDirectory
+                            ? Icons.folder
+                            : Icons.insert_drive_file_outlined,
+                      ),
+                      title: Text(e.name, overflow: TextOverflow.ellipsis),
+                      subtitle: Text(
+                        e.isDirectory ? '目录' : _formatSize(e.size),
+                      ),
+                      onTap: e.isDirectory ? () => _openLocalDir(e) : null,
+                      trailing: e.isDirectory
+                          ? null
+                          : IconButton(
+                              tooltip: '上传到远程',
+                              onPressed: _busy ? null : () => _uploadLocal(e),
+                              icon: const Icon(Icons.upload),
+                            ),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _remotePane({required List<Widget> actions}) {
     final session = _session;
     final cleartext = session?.profile.protocol == HostProtocol.ftp &&
         session?.profile.ftpSecure == FtpSecureMode.none;
 
-    final actions = <Widget>[
-      IconButton(
-        tooltip: '上级目录',
-        onPressed: _busy ? null : _goUp,
-        icon: const Icon(Icons.arrow_upward),
-      ),
-      IconButton(
-        tooltip: '刷新',
-        onPressed: _busy ? null : _reload,
-        icon: const Icon(Icons.refresh),
-      ),
-      IconButton(
-        tooltip: '新建文件夹',
-        onPressed: _busy ? null : _mkdir,
-        icon: const Icon(Icons.create_new_folder_outlined),
-      ),
-      IconButton(
-        tooltip: '上传',
-        onPressed: _busy ? null : _upload,
-        icon: const Icon(Icons.upload_file),
-      ),
-      IconButton(
-        tooltip: '断开',
-        onPressed: _close,
-        icon: const Icon(Icons.link_off),
-      ),
-    ];
-
-    final body = Column(
+    return Column(
       children: [
         if (cleartext)
           Material(
@@ -265,36 +471,46 @@ class _FilesPageState extends ConsumerState<FilesPage> {
             ),
           ),
         Material(
-          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          color: Theme.of(context).colorScheme.surfaceContainerHigh,
           child: SizedBox(
-            width: double.infinity,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              child: Text(
-                session?.backend.currentPath ?? '',
-                style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
-              ),
+            height: 48,
+            child: Row(
+              children: [
+                const SizedBox(width: 8),
+                const Icon(Icons.cloud_outlined, size: 18),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    session?.keepAliveTitle ?? '远程',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                ...actions,
+              ],
             ),
           ),
         ),
-        if (_busy || _loading) const LinearProgressIndicator(minHeight: 2),
-        if (_error != null)
+        _pathBar(session?.backend.currentPath ?? ''),
+        if (_busy || _loadingRemote) const LinearProgressIndicator(minHeight: 2),
+        if (_remoteError != null)
           Padding(
             padding: const EdgeInsets.all(12),
             child: Text(
-              _error!,
+              _remoteError!,
               style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
           ),
         Expanded(
-          child: _entries.isEmpty && !_loading
+          child: _remote.isEmpty && !_loadingRemote
               ? const Center(child: Text('空目录'))
               : ListView.separated(
-                  itemCount: _entries.length,
+                  itemCount: _remote.length,
                   separatorBuilder: (_, _) => const Divider(height: 1),
                   itemBuilder: (context, i) {
-                    final e = _entries[i];
+                    final e = _remote[i];
                     return ListTile(
+                      dense: true,
                       leading: Icon(
                         e.isDirectory
                             ? Icons.folder
@@ -304,20 +520,20 @@ class _FilesPageState extends ConsumerState<FilesPage> {
                       subtitle: Text(
                         e.isDirectory ? '目录' : _formatSize(e.size),
                       ),
-                      onTap: e.isDirectory ? () => _openDir(e) : null,
+                      onTap: e.isDirectory ? () => _openRemoteDir(e) : null,
                       trailing: PopupMenuButton<String>(
                         onSelected: (v) {
                           if (v == 'download' && !e.isDirectory) {
-                            _download(e);
+                            _downloadToLocal(e);
                           } else if (v == 'delete') {
-                            _delete(e);
+                            _deleteRemote(e);
                           }
                         },
                         itemBuilder: (_) => [
                           if (!e.isDirectory)
                             const PopupMenuItem(
                               value: 'download',
-                              child: Text('下载'),
+                              child: Text('下载到本地栏'),
                             ),
                           const PopupMenuItem(
                             value: 'delete',
@@ -331,50 +547,82 @@ class _FilesPageState extends ConsumerState<FilesPage> {
         ),
       ],
     );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    ref.watch(sessionManagerProvider);
+    final wide = MediaQuery.sizeOf(context).width >= PadBreakpoints.split;
+
+    final remoteActions = <Widget>[
+      if (!wide)
+        IconButton(
+          tooltip: _showLocalNarrow ? '隐藏本地' : '显示本地',
+          onPressed: () => setState(() => _showLocalNarrow = !_showLocalNarrow),
+          icon: Icon(
+            _showLocalNarrow ? Icons.phone_android : Icons.phone_android_outlined,
+          ),
+        ),
+      IconButton(
+        tooltip: '上级目录',
+        onPressed: _busy ? null : _goUpRemote,
+        icon: const Icon(Icons.arrow_upward),
+      ),
+      IconButton(
+        tooltip: '刷新',
+        onPressed: _busy ? null : _reloadRemote,
+        icon: const Icon(Icons.refresh),
+      ),
+      IconButton(
+        tooltip: '新建文件夹',
+        onPressed: _busy ? null : _mkdirRemote,
+        icon: const Icon(Icons.create_new_folder_outlined),
+      ),
+      IconButton(
+        tooltip: '上传（选取文件）',
+        onPressed: _busy ? null : _uploadPicked,
+        icon: const Icon(Icons.upload_file),
+      ),
+      IconButton(
+        tooltip: '断开',
+        onPressed: _close,
+        icon: const Icon(Icons.link_off),
+      ),
+    ];
+
+    final body = wide
+        ? Row(
+            children: [
+              Expanded(child: _localPane()),
+              VerticalDivider(
+                width: 1,
+                color: Theme.of(context).dividerColor,
+              ),
+              Expanded(child: _remotePane(actions: remoteActions)),
+            ],
+          )
+        : Column(
+            children: [
+              if (_showLocalNarrow)
+                SizedBox(
+                  height: MediaQuery.sizeOf(context).height * 0.35,
+                  child: _localPane(),
+                ),
+              if (_showLocalNarrow) const Divider(height: 1),
+              Expanded(child: _remotePane(actions: remoteActions)),
+            ],
+          );
 
     if (widget.embedded) {
-      return Column(
-        children: [
-          Material(
-            color: Theme.of(context).colorScheme.surfaceContainerHighest,
-            child: SizedBox(
-              height: 48,
-              child: Row(
-                children: [
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      session?.keepAliveTitle ?? '文件',
-                      style: Theme.of(context).textTheme.titleMedium,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  ...actions,
-                ],
-              ),
-            ),
-          ),
-          Expanded(child: body),
-        ],
-      );
+      return body;
     }
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(session?.keepAliveTitle ?? '文件'),
-        actions: actions,
+        title: Text(_session?.keepAliveTitle ?? '文件'),
       ),
       body: body,
     );
-  }
-
-  String _formatSize(int? size) {
-    if (size == null) return '';
-    if (size < 1024) return '$size B';
-    if (size < 1024 * 1024) {
-      return '${(size / 1024).toStringAsFixed(1)} KB';
-    }
-    return '${(size / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 }
 
@@ -385,7 +633,6 @@ Future<void> openFileBrowser(
   HostProfile profile,
 ) async {
   final mgr = ref.read(sessionManagerProvider);
-  // Navigate first so connecting state is visible.
   final nav = Navigator.of(context);
   final future = mgr.openFiles(profile);
   await nav.push(
@@ -394,6 +641,5 @@ Future<void> openFileBrowser(
       builder: (_) => const FilesPage(),
     ),
   );
-  // When user pops, ensure we awaited connect (errors already recorded).
   await future;
 }

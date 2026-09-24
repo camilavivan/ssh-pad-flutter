@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:xterm/xterm.dart';
 
 import '../../data/host_profile.dart';
+import '../ssh/ssh_connector.dart';
 import 'terminal_factory.dart';
 import 'terminal_session.dart';
 
@@ -65,37 +66,8 @@ class SshTerminalSession implements TerminalSession {
     terminal.write('\r\n* Connecting to ${profile.host}:${profile.port}…\r\n');
 
     try {
-      final socket = await SSHSocket.connect(
-        profile.host,
-        profile.port,
-        timeout: const Duration(seconds: 20),
-      );
-
-      List<SSHKeyPair>? identities;
-      if (profile.auth == AuthMethod.key) {
-        final pem = profile.privateKey?.trim();
-        if (pem == null || pem.isEmpty) {
-          throw StateError('Private key is empty');
-        }
-        identities = SSHKeyPair.fromPem(pem, profile.passphrase);
-      }
-
-      final client = SSHClient(
-        socket,
-        username: profile.username.isEmpty ? 'root' : profile.username,
-        identities: identities,
-        onPasswordRequest: profile.auth == AuthMethod.password
-            ? () => profile.password ?? ''
-            : (profile.passphrase != null && profile.passphrase!.isNotEmpty
-                ? () => profile.passphrase!
-                : null),
-        keepAliveInterval: const Duration(seconds: 8),
-        // First-party Pad client: host key UX lands later; accept for M1/M2.
-        onVerifyHostKey: (type, key) => true,
-      );
+      final client = await SshConnector.connect(profile);
       _client = client;
-
-      await client.authenticated;
 
       final shell = await client.shell(
         pty: SSHPtyConfig(

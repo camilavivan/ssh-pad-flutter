@@ -47,8 +47,8 @@ Pad 优先的 Flutter SSH / Telnet / SFTP / FTP 终端客户端。
 2. **M1** — 最小 SSH 终端
 3. **M1b** — **保活 FGS 完整接通（关键路径）**
 4. **M2** — SFTP / TELNET / FTP
-5. **M3** — Pad 布局 / 键盘打磨 ← 当前
-6. **M5** — 发版打磨
+5. **M3** — Pad 布局 / 键盘打磨
+6. **M5** — 发版打磨 ← 当前
 
 ## Pad 布局与键盘（M3）
 
@@ -81,3 +81,35 @@ flutter run   # 需连接设备 / 模拟器
 - Kotlin 对照仓：`camilavivan/ssh-pad`（勿与本仓混淆）。
 - 应用 id：`com.sshtab.ssh_pad_flutter`
 - org：`com.sshtab`
+
+
+## M5 打磨
+
+- **TOFU 主机密钥**：SSH/SFTP 首次连接展示指纹并写入信任库；指纹变更时警告，可拒绝或替换。
+- **安全密钥存储**：密码 / 私钥 / 口令经 `flutter_secure_storage` 保存；SharedPreferences 仅存主机元数据；启动时迁移旧明文。
+- **双栏文件浏览器**：宽屏（≥600dp）左本地 / 右远程，支持上传、下载、远程 mkdir/删除；窄屏可切换显示本地栏。
+- **会话日志**：设置页可查看近期连接 / 密钥 / 文件操作事件。
+- **安装**：从 [GitHub Releases](https://github.com/camilavivan/ssh-pad-flutter/releases) 下载 APK（`v0.5.0-m5`）。
+
+### 自行签名发版
+
+```bash
+# 生成上传密钥（勿提交）
+mkdir -p /workspace/secrets
+keytool -genkeypair -v -keystore /workspace/secrets/ssh-pad-upload.jks \
+  -keyalg RSA -keysize 2048 -validity 10000 -alias ssh-pad \
+  -storepass CHANGE_ME -keypass CHANGE_ME \
+  -dname "CN=SSH Pad, OU=Dev, O=SSHTab, L=HK, ST=HK, C=HK"
+
+# /workspace/secrets/key.properties:
+# storePassword=CHANGE_ME
+# keyPassword=CHANGE_ME
+# keyAlias=ssh-pad
+# storeFile=/workspace/secrets/ssh-pad-upload.jks
+
+export PATH="/home/box/flutter/bin:$PATH"
+flutter build apk --release
+# 产物：build/app/outputs/flutter-apk/app-release.apk
+```
+
+若未配置 `key.properties`，release 仍可用 Android debug 签名构建（仅供内测）。用户可用自己的密钥重新签名后再分发。

@@ -49,3 +49,12 @@ app.*.map.json
 
 # Gradle build reports
 android/build/
+
+# Secrets / signing / APKs (never commit)
+/secrets/
+*.jks
+*.keystore
+key.properties
+*.apk
+*.aab
+/workspace/secrets/
