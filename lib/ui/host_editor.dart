@@ -1,9 +1,12 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/session/session_manager.dart';
 import '../data/host_profile.dart';
 import '../data/host_store.dart';
 import 'placeholders.dart';
+import 'terminal/terminal_page.dart';
 
 class HostEditorPage extends ConsumerStatefulWidget {
   const HostEditorPage({super.key, this.existing});
@@ -20,6 +23,7 @@ class _HostEditorPageState extends ConsumerState<HostEditorPage> {
   late final TextEditingController _port;
   late final TextEditingController _username;
   late final TextEditingController _password;
+  late final TextEditingController _privateKey;
   late HostProtocol _protocol;
   late AuthMethod _auth;
   late FtpSecureMode _ftpSecure;
@@ -39,7 +43,8 @@ class _HostEditorPageState extends ConsumerState<HostEditorPage> {
       text: (e?.port ?? _protocol.defaultPort ?? 22).toString(),
     );
     _username = TextEditingController(text: e?.username ?? '');
-    _password = TextEditingController(text: e?.password ?? '');
+    _password = TextEditingController(text: e?.password ?? e?.passphrase ?? '');
+    _privateKey = TextEditingController(text: e?.privateKey ?? '');
   }
 
   @override
@@ -49,6 +54,7 @@ class _HostEditorPageState extends ConsumerState<HostEditorPage> {
     _port.dispose();
     _username.dispose();
     _password.dispose();
+    _privateKey.dispose();
     super.dispose();
   }
 
@@ -63,11 +69,26 @@ class _HostEditorPageState extends ConsumerState<HostEditorPage> {
     });
   }
 
-  Future<void> _save({bool connect = false}) async {
+  Future<void> _pickKeyFile() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.any,
+      withData: true,
+    );
+    if (result == null || result.files.isEmpty) return;
+    final f = result.files.single;
+    final bytes = f.bytes;
+    if (bytes != null) {
+      _privateKey.text = String.fromCharCodes(bytes);
+      setState(() {});
+    }
+  }
+
+  HostProfile _buildProfile() {
     final port = int.tryParse(_port.text.trim()) ??
         _protocol.defaultPort ??
         22;
-    final profile = HostProfile(
+    final pwd = _password.text.isEmpty ? null : _password.text;
+    return HostProfile(
       id: widget.existing?.id ??
           DateTime.now().millisecondsSinceEpoch.toString(),
       name: _name.text.trim().isEmpty ? _host.text.trim() : _name.text.trim(),
@@ -76,33 +97,51 @@ class _HostEditorPageState extends ConsumerState<HostEditorPage> {
       port: port,
       username: _username.text.trim(),
       auth: _auth,
-      password: _password.text.isEmpty ? null : _password.text,
+      password: _auth == AuthMethod.password ? pwd : null,
+      privateKey: _auth == AuthMethod.key && _privateKey.text.trim().isNotEmpty
+          ? _privateKey.text
+          : widget.existing?.privateKey,
+      passphrase: _auth == AuthMethod.key ? pwd : null,
       ftpSecure: _ftpSecure,
       saveSecret: _saveSecret,
     );
+  }
+
+  Future<void> _save({bool connect = false}) async {
+    final profile = _buildProfile();
     await ref.read(hostListProvider.notifier).upsert(profile);
     if (!mounted) return;
-    if (connect) {
-      if (_protocol.isDeferred) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${_protocol.label} 将在后续版本实现（稍后）')),
-        );
-        return;
-      }
-      if (_protocol == HostProtocol.sftp || _protocol == HostProtocol.ftp) {
-        await Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const FilesPlaceholderPage()),
-        );
-      } else {
-        await Navigator.of(context).pushReplacement(
-          MaterialPageRoute(
-            builder: (_) => TerminalPlaceholderPage(hostName: profile.name),
-          ),
-        );
-      }
-    } else {
+    if (!connect) {
       Navigator.of(context).pop();
+      return;
     }
+    if (_protocol.isDeferred) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${_protocol.label} 将在后续版本实现（稍后）')),
+      );
+      return;
+    }
+    if (_protocol == HostProtocol.sftp || _protocol == HostProtocol.ftp) {
+      await Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const FilesPlaceholderPage()),
+      );
+      return;
+    }
+    if (_protocol == HostProtocol.telnet) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('TELNET 将在 M2 接通')),
+      );
+      return;
+    }
+    // SSH — navigate then open so connect output shows on the terminal page.
+    final mgr = ref.read(sessionManagerProvider);
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        settings: const RouteSettings(name: '/terminal'),
+        builder: (_) => const TerminalPage(),
+      ),
+    );
+    await mgr.open(profile);
   }
 
   @override
@@ -214,10 +253,33 @@ class _HostEditorPageState extends ConsumerState<HostEditorPage> {
             controller: _password,
             obscureText: true,
             decoration: InputDecoration(
-              labelText: _auth == AuthMethod.key ? '口令 / 私钥口令' : '密码',
+              labelText: _auth == AuthMethod.key ? '私钥口令（可选）' : '密码',
               border: const OutlineInputBorder(),
             ),
           ),
+          if (_auth == AuthMethod.key &&
+              (_protocol == HostProtocol.ssh ||
+                  _protocol == HostProtocol.sftp)) ...[
+            const SizedBox(height: 12),
+            TextField(
+              controller: _privateKey,
+              maxLines: 6,
+              decoration: const InputDecoration(
+                labelText: '私钥 PEM',
+                alignLabelWithHint: true,
+                border: OutlineInputBorder(),
+                hintText: '-----BEGIN OPENSSH PRIVATE KEY-----',
+              ),
+            ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: _pickKeyFile,
+                icon: const Icon(Icons.upload_file),
+                label: const Text('从文件导入私钥'),
+              ),
+            ),
+          ],
           if (_protocol == HostProtocol.ftp) ...[
             const SizedBox(height: 12),
             DropdownButtonFormField<FtpSecureMode>(

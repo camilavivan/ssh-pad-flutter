@@ -42,9 +42,9 @@ Pad 优先的 Flutter SSH / Telnet / SFTP / FTP 终端客户端。
 
 ## 里程碑（保活提前）
 
-1. **M0** — 脚手架 + HostProfile + **保活骨架（FGS stub）** ← 当前
-2. **M1** — 最小 SSH 终端
-3. **M1b** — **保活 FGS 完整接通（关键路径）**
+1. **M0** — 脚手架 + HostProfile + 保活骨架（FGS stub）
+2. **M1** — 最小 SSH 终端 ← 当前（含 M1b）
+3. **M1b** — **保活 FGS 完整接通（关键路径）** ← 与 M1 一并完成
 4. **M2** — SFTP / TELNET / FTP
 5. **M3** — Pad 布局 / 键盘打磨
 6. **M5** — 发版打磨

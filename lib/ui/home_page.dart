@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/session/session_manager.dart';
 import '../data/host_profile.dart';
 import '../data/host_store.dart';
 import 'host_editor.dart';
 import 'placeholders.dart';
+import 'terminal/terminal_page.dart';
 
 class HomePage extends ConsumerWidget {
   const HomePage({super.key});
@@ -12,10 +14,20 @@ class HomePage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final hosts = ref.watch(hostListProvider);
+    final sessions = ref.watch(sessionManagerProvider).sessions;
     return Scaffold(
       appBar: AppBar(
         title: const Text('SSH Pad'),
         actions: [
+          if (sessions.isNotEmpty)
+            IconButton(
+              tooltip: '打开终端 (${sessions.length})',
+              icon: Badge(
+                label: Text('${sessions.length}'),
+                child: const Icon(Icons.terminal),
+              ),
+              onPressed: () => _openTerminalUi(context),
+            ),
           IconButton(
             tooltip: '保活设置',
             icon: const Icon(Icons.shield_outlined),
@@ -73,7 +85,7 @@ class HomePage extends ConsumerWidget {
                       } else if (v == 'delete') {
                         await ref.read(hostListProvider.notifier).delete(h.id);
                       } else if (v == 'connect') {
-                        _connect(context, h);
+                        await _connect(context, ref, h);
                       }
                     },
                     itemBuilder: (_) => [
@@ -82,7 +94,7 @@ class HomePage extends ConsumerWidget {
                       const PopupMenuItem(value: 'delete', child: Text('删除')),
                     ],
                   ),
-                  onTap: () => _connect(context, h),
+                  onTap: () => _connect(context, ref, h),
                 );
               },
             ),
@@ -97,7 +109,20 @@ class HomePage extends ConsumerWidget {
     );
   }
 
-  void _connect(BuildContext context, HostProfile h) {
+  void _openTerminalUi(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        settings: const RouteSettings(name: '/terminal'),
+        builder: (_) => const TerminalPage(),
+      ),
+    );
+  }
+
+  Future<void> _connect(
+    BuildContext context,
+    WidgetRef ref,
+    HostProfile h,
+  ) async {
     if (h.protocol.isDeferred) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('${h.protocol.label} 将在后续版本实现（稍后）')),
@@ -105,15 +130,23 @@ class HomePage extends ConsumerWidget {
       return;
     }
     if (h.protocol == HostProtocol.sftp || h.protocol == HostProtocol.ftp) {
-      Navigator.of(context).push(
+      await Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => const FilesPlaceholderPage()),
       );
-    } else {
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => TerminalPlaceholderPage(hostName: h.name),
-        ),
-      );
+      return;
     }
+    if (h.protocol == HostProtocol.telnet) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('TELNET 将在 M2 接通；保活通道已就绪')),
+      );
+      return;
+    }
+
+    // SSH (M1): start session then show shared terminal UI.
+    final mgr = ref.read(sessionManagerProvider);
+    // Navigate first so connecting output is visible.
+    if (!context.mounted) return;
+    _openTerminalUi(context);
+    await mgr.open(h);
   }
 }

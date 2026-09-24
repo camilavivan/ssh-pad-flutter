@@ -15,10 +15,10 @@ import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 
 /**
- * Same-process foreground service for session keepalive (dataSync).
+ * Same-process FGS for session keepalive.
  *
- * M0 stub: notification + wake/wifi locks when sessions non-empty.
- * Full session wiring + OEM / optional mediaPlayback in M1b.
+ * Holds PARTIAL_WAKE_LOCK + WifiLock while sessions are active.
+ * Optional weak AudioTrack when [EXTRA_WEAK_AUDIO] is true (CN OEM path).
  * Does NOT aggressively auto-reconnect.
  */
 class SessionForegroundService : Service() {
@@ -26,14 +26,24 @@ class SessionForegroundService : Service() {
         const val CHANNEL_ID = "ssh_pad_sessions"
         const val NOTIFICATION_ID = 1001
         const val ACTION_STOP = "com.sshtab.ssh_pad_flutter.STOP_SESSIONS"
+        const val ACTION_OPEN = "com.sshtab.ssh_pad_flutter.OPEN_APP"
         const val EXTRA_SESSIONS = "sessions"
+        const val EXTRA_TITLE = "title"
+        const val EXTRA_WEAK_AUDIO = "weakAudio"
 
         @Volatile
         var stopCallback: (() -> Unit)? = null
 
-        fun start(context: Context, sessions: List<String>) {
+        fun start(
+            context: Context,
+            sessions: List<String>,
+            title: String?,
+            weakAudio: Boolean,
+        ) {
             val intent = Intent(context, SessionForegroundService::class.java).apply {
                 putStringArrayListExtra(EXTRA_SESSIONS, ArrayList(sessions))
+                putExtra(EXTRA_TITLE, title ?: "")
+                putExtra(EXTRA_WEAK_AUDIO, weakAudio)
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
@@ -49,22 +59,58 @@ class SessionForegroundService : Service() {
 
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
+    private var player: KeepAlivePlayer? = null
+    private var lastCount = 0
+    private var lastTitle = ""
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP) {
-            stopCallback?.invoke()
-            releaseLocks()
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
-            return START_NOT_STICKY
+        when (intent?.action) {
+            ACTION_STOP -> {
+                stopCallback?.invoke()
+                teardown()
+                return START_NOT_STICKY
+            }
+            ACTION_OPEN -> {
+                val launch = packageManager.getLaunchIntentForPackage(packageName)
+                launch?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                if (launch != null) startActivity(launch)
+                return START_STICKY
+            }
         }
 
         val sessions = intent?.getStringArrayListExtra(EXTRA_SESSIONS) ?: arrayListOf()
+        val title = intent?.getStringExtra(EXTRA_TITLE).orEmpty()
+        val weakAudio = intent?.getBooleanExtra(EXTRA_WEAK_AUDIO, false) ?: false
+        lastCount = sessions.size
+        lastTitle = title
+
         ensureChannel()
-        val notification = buildNotification(sessions.size)
+        val notification = buildNotification(sessions.size, title)
+        startAsForeground(notification)
+
+        if (sessions.isEmpty()) {
+            teardown()
+            return START_NOT_STICKY
+        }
+
+        acquireLocks()
+        if (weakAudio) {
+            if (player == null) player = KeepAlivePlayer()
+            player?.start()
+        } else {
+            player?.stop()
+            player = null
+        }
+        return START_STICKY
+    }
+
+    private fun startAsForeground(notification: Notification) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // Prefer dataSync; if weak audio path is used we still declare dataSync
+            // as primary type in Manifest. Optional mediaPlayback type requires
+            // matching permission + manifest type when enabled in a future build.
             startForeground(
                 NOTIFICATION_ID,
                 notification,
@@ -73,19 +119,19 @@ class SessionForegroundService : Service() {
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
-        acquireLocks()
+    }
 
-        if (sessions.isEmpty()) {
-            // keepAlive placeholder: if Dart syncs empty, stop.
-            releaseLocks()
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
-            return START_NOT_STICKY
-        }
-        return START_STICKY
+    private fun teardown() {
+        player?.stop()
+        player = null
+        releaseLocks()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
     }
 
     override fun onDestroy() {
+        player?.stop()
+        player = null
         releaseLocks()
         super.onDestroy()
     }
@@ -103,8 +149,10 @@ class SessionForegroundService : Service() {
         nm.createNotificationChannel(channel)
     }
 
-    private fun buildNotification(count: Int): Notification {
-        val launch = packageManager.getLaunchIntentForPackage(packageName)
+    private fun buildNotification(count: Int, title: String): Notification {
+        val launch = packageManager.getLaunchIntentForPackage(packageName)?.apply {
+            addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        }
         val contentPi = PendingIntent.getActivity(
             this,
             0,
@@ -120,13 +168,31 @@ class SessionForegroundService : Service() {
             stopIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
+        val openIntent = Intent(this, SessionForegroundService::class.java).apply {
+            action = ACTION_OPEN
+        }
+        val openPi = PendingIntent.getService(
+            this,
+            2,
+            openIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val text = when {
+            count <= 0 -> "无活动会话"
+            title.isNotBlank() -> title
+            else -> "活动会话：$count"
+        }
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("SSH Pad")
-            .setContentText(if (count > 0) "活动会话：$count" else "保活占位")
+            .setContentTitle("SSH Pad 会话保活")
+            .setContentText(text)
             .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
             .setContentIntent(contentPi)
             .setOngoing(true)
-            .addAction(0, "断开", stopPi)
+            .setOnlyAlertOnce(true)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+            .addAction(0, "打开应用", openPi)
+            .addAction(0, "断开全部", stopPi)
             .build()
     }
 
@@ -137,6 +203,8 @@ class SessionForegroundService : Service() {
                 setReferenceCounted(false)
                 acquire()
             }
+        } else if (wakeLock?.isHeld != true) {
+            wakeLock?.acquire()
         }
         if (wifiLock == null) {
             @Suppress("DEPRECATION")
@@ -146,6 +214,8 @@ class SessionForegroundService : Service() {
                 setReferenceCounted(false)
                 acquire()
             }
+        } else if (wifiLock?.isHeld != true) {
+            wifiLock?.acquire()
         }
     }
 
