@@ -23,9 +23,7 @@ Pad 优先的 Flutter SSH / Telnet / SFTP / FTP 终端客户端。
 | SFTP | 22 | ✅ MVP | `dartssh2` SftpClient |
 | TELNET | 23 | ✅ MVP | `ctelnet` |
 | FTP | 21 | ✅ MVP | `ftpconnect`（FTPS/FTPES + PASV） |
-| SERIAL | — | ❌ 稍后 | USB OTG |
-| LOCAL | — | ❌ 稍后 | 本机 shell |
-| RLOGIN | 513 | ❌ 稍后 | 明文冷门 |
+| SERIAL / LOCAL / RLOGIN | — | 隐藏 | 枚举保留；协议选择器不展示 |
 
 ## 技术栈
 

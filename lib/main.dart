@@ -71,13 +71,6 @@ class _SshPadAppState extends ConsumerState<SshPadApp> {
       themeMode: themeMode,
       home: const PadShell(),
       debugShowCheckedModeBanner: false,
-      builder: (context, child) {
-        return Banner(
-          message: 'M5',
-          location: BannerLocation.topEnd,
-          child: child ?? const SizedBox.shrink(),
-        );
-      },
     );
   }
 }

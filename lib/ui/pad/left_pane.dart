@@ -354,9 +354,7 @@ class _HostCard extends StatelessWidget {
                   children: [
                     Text(title, overflow: TextOverflow.ellipsis),
                     Text(
-                      '${host.protocol.label}'
-                      '${host.protocol.isDeferred ? ' · 稍后' : ''}'
-                      ' · ${host.host}:${host.port}',
+                      '${host.protocol.label} · ${host.host}:${host.port}',
                       style: Theme.of(context).textTheme.bodySmall,
                       overflow: TextOverflow.ellipsis,
                     ),

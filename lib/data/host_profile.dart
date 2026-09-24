@@ -10,15 +10,23 @@ enum HostProtocol {
   local,
   rlogin;
 
-  /// Protocols implemented in MVP (connect enabled).
+  /// Protocols shipped in the UI (connect enabled).
   bool get isMvp =>
       this == HostProtocol.ssh ||
       this == HostProtocol.sftp ||
       this == HostProtocol.telnet ||
       this == HostProtocol.ftp;
 
-  /// Deferred P2 protocols (show 「稍后」, disable connect).
+  /// Kept in the enum for future use / legacy JSON; never shown in the picker.
   bool get isDeferred => !isMvp;
+
+  /// Only these appear in the protocol dropdown.
+  static const List<HostProtocol> selectable = [
+    HostProtocol.ssh,
+    HostProtocol.sftp,
+    HostProtocol.telnet,
+    HostProtocol.ftp,
+  ];
 
   bool get isTerminal =>
       this == HostProtocol.ssh || this == HostProtocol.telnet;

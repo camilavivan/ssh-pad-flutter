@@ -45,10 +45,10 @@ class _PadShellState extends ConsumerState<PadShell> {
   }
 
   Future<void> _connectHost(HostProfile h) async {
-    if (h.protocol.isDeferred) {
+    if (!h.protocol.isMvp) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${h.protocol.label} 将在后续版本实现（稍后）')),
+        SnackBar(content: Text('不支持的协议：${h.protocol.label}，请编辑主机改为 SSH/SFTP/TELNET/FTP')),
       );
       return;
     }

@@ -34,7 +34,8 @@ class _HostEditorPageState extends ConsumerState<HostEditorPage> {
   void initState() {
     super.initState();
     final e = widget.existing;
-    _protocol = e?.protocol ?? HostProtocol.ssh;
+    final initial = e?.protocol ?? HostProtocol.ssh;
+    _protocol = initial.isMvp ? initial : HostProtocol.ssh;
     _auth = e?.auth ?? AuthMethod.password;
     _ftpSecure = e?.ftpSecure ?? FtpSecureMode.none;
     _ftpPassive = e?.ftpPassive ?? true;
@@ -118,12 +119,6 @@ class _HostEditorPageState extends ConsumerState<HostEditorPage> {
       Navigator.of(context).pop();
       return;
     }
-    if (_protocol.isDeferred) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${_protocol.label} 将在后续版本实现（稍后）')),
-      );
-      return;
-    }
     if (_protocol == HostProtocol.sftp || _protocol == HostProtocol.ftp) {
       Navigator.of(context).pop();
       await openFileBrowser(context, ref, profile);
@@ -153,7 +148,6 @@ class _HostEditorPageState extends ConsumerState<HostEditorPage> {
 
   @override
   Widget build(BuildContext context) {
-    final deferred = _protocol.isDeferred;
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.existing == null ? '添加主机' : '编辑主机'),
@@ -174,22 +168,13 @@ class _HostEditorPageState extends ConsumerState<HostEditorPage> {
               labelText: '协议',
               border: OutlineInputBorder(),
             ),
-            items: HostProtocol.values.map((p) {
-              final label = p.isDeferred ? '${p.label}（稍后）' : p.label;
-              return DropdownMenuItem(value: p, child: Text(label));
+            items: HostProtocol.selectable.map((p) {
+              return DropdownMenuItem(value: p, child: Text(p.label));
             }).toList(),
             onChanged: _onProtocolChanged,
           ),
-          if (deferred) ...[
-            const SizedBox(height: 8),
-            Text(
-              '该协议尚未实现，保存档案后可连接功能将禁用。',
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
-            ),
-          ],
           if (_protocol == HostProtocol.telnet ||
-              _protocol == HostProtocol.ftp ||
-              _protocol == HostProtocol.rlogin) ...[
+              _protocol == HostProtocol.ftp) ...[
             const SizedBox(height: 8),
             Material(
               color: Theme.of(context).colorScheme.errorContainer,
@@ -197,7 +182,7 @@ class _HostEditorPageState extends ConsumerState<HostEditorPage> {
               child: const Padding(
                 padding: EdgeInsets.all(12),
                 child: Text(
-                  '警告：TELNET / FTP / RLOGIN 为明文凭据与会话。'
+                  '警告：TELNET / FTP 为明文凭据与会话。'
                   '生产环境请优先使用 SSH / SFTP / FTPS。',
                 ),
               ),
@@ -218,7 +203,6 @@ class _HostEditorPageState extends ConsumerState<HostEditorPage> {
               labelText: '主机',
               border: OutlineInputBorder(),
             ),
-            enabled: _protocol != HostProtocol.local,
           ),
           const SizedBox(height: 12),
           TextField(
@@ -323,9 +307,9 @@ class _HostEditorPageState extends ConsumerState<HostEditorPage> {
           ),
           const SizedBox(height: 24),
           FilledButton.icon(
-            onPressed: deferred ? null : () => _save(connect: true),
+            onPressed: () => _save(connect: true),
             icon: const Icon(Icons.play_arrow),
-            label: Text(deferred ? '连接（稍后）' : '保存并连接'),
+            label: const Text('保存并连接'),
           ),
         ],
       ),
