@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/session/session_manager.dart';
 import '../data/host_profile.dart';
 import '../data/host_store.dart';
-import 'placeholders.dart';
+import 'files/files_page.dart';
 import 'terminal/terminal_page.dart';
 
 class HostEditorPage extends ConsumerStatefulWidget {
@@ -27,6 +27,7 @@ class _HostEditorPageState extends ConsumerState<HostEditorPage> {
   late HostProtocol _protocol;
   late AuthMethod _auth;
   late FtpSecureMode _ftpSecure;
+  late bool _ftpPassive;
   late bool _saveSecret;
 
   @override
@@ -36,6 +37,7 @@ class _HostEditorPageState extends ConsumerState<HostEditorPage> {
     _protocol = e?.protocol ?? HostProtocol.ssh;
     _auth = e?.auth ?? AuthMethod.password;
     _ftpSecure = e?.ftpSecure ?? FtpSecureMode.none;
+    _ftpPassive = e?.ftpPassive ?? true;
     _saveSecret = e?.saveSecret ?? false;
     _name = TextEditingController(text: e?.name ?? '');
     _host = TextEditingController(text: e?.host ?? '');
@@ -103,6 +105,7 @@ class _HostEditorPageState extends ConsumerState<HostEditorPage> {
           : widget.existing?.privateKey,
       passphrase: _auth == AuthMethod.key ? pwd : null,
       ftpSecure: _ftpSecure,
+      ftpPassive: _ftpPassive,
       saveSecret: _saveSecret,
     );
   }
@@ -122,15 +125,19 @@ class _HostEditorPageState extends ConsumerState<HostEditorPage> {
       return;
     }
     if (_protocol == HostProtocol.sftp || _protocol == HostProtocol.ftp) {
-      await Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const FilesPlaceholderPage()),
-      );
+      Navigator.of(context).pop();
+      await openFileBrowser(context, ref, profile);
       return;
     }
     if (_protocol == HostProtocol.telnet) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('TELNET 将在 M2 接通')),
+      final mgr = ref.read(sessionManagerProvider);
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          settings: const RouteSettings(name: '/terminal'),
+          builder: (_) => const TerminalPage(),
+        ),
       );
+      await mgr.openTerminal(profile);
       return;
     }
     // SSH — navigate then open so connect output shows on the terminal page.
@@ -299,6 +306,15 @@ class _HostEditorPageState extends ConsumerState<HostEditorPage> {
             ),
           ],
           const SizedBox(height: 8),
+
+          if (_protocol == HostProtocol.ftp) ...[
+            SwitchListTile(
+              title: const Text('被动模式 (PASV)'),
+              subtitle: const Text('局域网 NAT 建议开启'),
+              value: _ftpPassive,
+              onChanged: (v) => setState(() => _ftpPassive = v),
+            ),
+          ],
           SwitchListTile(
             title: const Text('保存密钥 / 密码（本地）'),
             subtitle: const Text('后续将迁移至安全存储'),

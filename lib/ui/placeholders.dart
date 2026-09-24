@@ -3,23 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/keepalive/keepalive_controller.dart';
 
-class FilesPlaceholderPage extends StatelessWidget {
-  const FilesPlaceholderPage({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('文件')),
-      body: const Center(
-        child: Text(
-          'SFTP / FTP 文件浏览将在 M2 实现',
-          textAlign: TextAlign.center,
-        ),
-      ),
-    );
-  }
-}
-
 /// Keepalive settings: battery, OEM autostart, notification, optional weak audio.
 class KeepAliveSettingsPage extends ConsumerWidget {
   const KeepAliveSettingsPage({super.key});
@@ -34,7 +17,7 @@ class KeepAliveSettingsPage extends ConsumerWidget {
           const ListTile(
             title: Text('会话保活（重中之重）'),
             subtitle: Text(
-              '有 SSH 会话时启动同进程前台服务（dataSync），'
+              '有终端/文件会话时启动同进程前台服务（dataSync），'
               '持有 PARTIAL_WAKE_LOCK + WifiLock。'
               '切应用不断开；仅用户断开或杀进程结束。'
               '默认不无限自动重连。',

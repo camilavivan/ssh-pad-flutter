@@ -1,44 +1,64 @@
 import 'dart:async';
 import 'dart:convert';
+
 import 'package:dartssh2/dartssh2.dart';
 import 'package:flutter/foundation.dart';
 import 'package:xterm/xterm.dart';
 
 import '../../data/host_profile.dart';
-
-enum SshSessionPhase { connecting, connected, disconnected, error }
+import 'terminal_session.dart';
 
 /// One SSH PTY shell bound to an [xterm] [Terminal].
 ///
 /// Keepalive uses dartssh2 [SSHClient.keepAliveInterval] (~8s, JSch-like).
 /// No aggressive auto-reconnect — disconnect is user-driven or process death.
-class SshTerminalSession {
+class SshTerminalSession implements TerminalSession {
   SshTerminalSession({
     required this.id,
     required this.profile,
     Terminal? terminal,
   }) : terminal = terminal ?? Terminal(maxLines: 10000);
 
+  @override
   final String id;
+  @override
   final HostProfile profile;
+  @override
   final Terminal terminal;
 
   SSHClient? _client;
   SSHSession? _shell;
   StreamSubscription<Uint8List>? _stdoutSub;
   StreamSubscription<Uint8List>? _stderrSub;
-  SshSessionPhase phase = SshSessionPhase.connecting;
+
+  @override
+  SessionPhase phase = SessionPhase.connecting;
+  @override
   String? errorMessage;
+
+  @override
   VoidCallback? onChanged;
 
-  bool get isConnected => phase == SshSessionPhase.connected;
+  @override
+  bool get isConnected => phase == SessionPhase.connected;
+
+  @override
   String get title {
     final name = profile.name.isNotEmpty ? profile.name : profile.host;
     return name;
   }
 
+  @override
+  String get keepAliveTitle => '${profile.protocol.label} $title';
+
+
+
+
+
+
+  @override
   Future<void> connect() async {
-    phase = SshSessionPhase.connecting;
+    phase = SessionPhase.connecting;
     errorMessage = null;
     _notify();
     terminal.write('\r\n* Connecting to ${profile.host}:${profile.port}…\r\n');
@@ -69,7 +89,7 @@ class SshTerminalSession {
                 ? () => profile.passphrase!
                 : null),
         keepAliveInterval: const Duration(seconds: 8),
-        // First-party Pad client: host key UX lands later; accept for M1.
+        // First-party Pad client: host key UX lands later; accept for M1/M2.
         onVerifyHostKey: (type, key) => true,
       );
       _client = client;
@@ -86,8 +106,7 @@ class SshTerminalSession {
       _shell = shell;
 
       terminal.onOutput = (data) {
-        final bytes = Uint8List.fromList(utf8.encode(data));
-        shell.write(bytes);
+        shell.write(Uint8List.fromList(utf8.encode(data)));
       };
       terminal.onResize = (w, h, pw, ph) {
         try {
@@ -101,8 +120,8 @@ class SshTerminalSession {
           terminal.write('\r\n* stdout error: $e\r\n');
         },
         onDone: () {
-          if (phase == SshSessionPhase.connected) {
-            phase = SshSessionPhase.disconnected;
+          if (phase == SessionPhase.connected) {
+            phase = SessionPhase.disconnected;
             terminal.write('\r\n* Session closed by remote\r\n');
             _notify();
           }
@@ -114,20 +133,20 @@ class SshTerminalSession {
 
       unawaited(
         shell.done.then((_) {
-          if (phase == SshSessionPhase.connected) {
-            phase = SshSessionPhase.disconnected;
+          if (phase == SessionPhase.connected) {
+            phase = SessionPhase.disconnected;
             terminal.write('\r\n* Shell ended\r\n');
             _notify();
           }
         }),
       );
 
-      phase = SshSessionPhase.connected;
+      phase = SessionPhase.connected;
       terminal.write('* Connected\r\n');
       _notify();
     } catch (e, st) {
       debugPrint('SSH connect failed: $e\n$st');
-      phase = SshSessionPhase.error;
+      phase = SessionPhase.error;
       errorMessage = e.toString();
       terminal.write('\r\n* Connect failed: $e\r\n');
       await disconnect(silent: true);
@@ -136,11 +155,10 @@ class SshTerminalSession {
     }
   }
 
-  /// Send Ctrl-C style interrupt if shell is up (also ExtraKeys path).
+  @override
   void sendInterrupt() {
     final shell = _shell;
     if (shell == null) {
-      // Fallback: write ETX so line discipline still sees ^C.
       terminal.onOutput?.call(String.fromCharCode(0x03));
       return;
     }
@@ -151,6 +169,7 @@ class SshTerminalSession {
     }
   }
 
+  @override
   Future<void> disconnect({bool silent = false}) async {
     await _stdoutSub?.cancel();
     await _stderrSub?.cancel();
@@ -166,12 +185,13 @@ class SshTerminalSession {
     _client = null;
     terminal.onOutput = null;
     terminal.onResize = null;
-    if (!silent && phase != SshSessionPhase.error) {
-      phase = SshSessionPhase.disconnected;
+    if (!silent && phase != SessionPhase.error) {
+      phase = SessionPhase.disconnected;
       _notify();
     }
   }
 
+  @override
   void dispose() {
     unawaited(disconnect(silent: true));
   }

@@ -3,87 +3,172 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/host_profile.dart';
 import '../keepalive/keepalive_controller.dart';
+import '../telnet/telnet_terminal_session.dart';
+import 'file_browser_session.dart';
 import 'ssh_terminal_session.dart';
+import 'terminal_session.dart';
 
-/// Multi-session hub: open / switch / close SSH terminals and sync FGS.
+/// Multi-session hub: SSH/Telnet terminals + SFTP/FTP browsers; syncs FGS.
 class SessionManager extends ChangeNotifier {
   SessionManager(this._keepalive);
 
   final KeepAliveController _keepalive;
-  final List<SshTerminalSession> _sessions = [];
-  String? _activeId;
+  final List<TerminalSession> _terminals = [];
+  final List<FileBrowserSession> _files = [];
+  String? _activeTerminalId;
+  String? _activeFileId;
   bool _disposed = false;
 
-  List<SshTerminalSession> get sessions => List.unmodifiable(_sessions);
-  String? get activeId => _activeId;
+  List<TerminalSession> get terminals => List.unmodifiable(_terminals);
+  List<FileBrowserSession> get files => List.unmodifiable(_files);
 
-  SshTerminalSession? get active {
-    if (_sessions.isEmpty) return null;
-    final id = _activeId;
-    if (id == null) return _sessions.last;
-    for (final s in _sessions) {
+  /// Back-compat alias used by terminal UI.
+  List<TerminalSession> get sessions => terminals;
+
+  String? get activeId => _activeTerminalId;
+  String? get activeFileId => _activeFileId;
+
+  TerminalSession? get active {
+    if (_terminals.isEmpty) return null;
+    final id = _activeTerminalId;
+    if (id == null) return _terminals.last;
+    for (final s in _terminals) {
       if (s.id == id) return s;
     }
-    return _sessions.last;
+    return _terminals.last;
   }
 
-  /// Open SSH only in M1; other protocols stay placeholders at call site.
-  Future<SshTerminalSession> open(HostProfile profile) async {
-    if (profile.protocol != HostProtocol.ssh) {
+  FileBrowserSession? get activeFile {
+    if (_files.isEmpty) return null;
+    final id = _activeFileId;
+    if (id == null) return _files.last;
+    for (final s in _files) {
+      if (s.id == id) return s;
+    }
+    return _files.last;
+  }
+
+  Future<TerminalSession> openTerminal(HostProfile profile) async {
+    if (!profile.protocol.isTerminal) {
       throw UnsupportedError(
-        '${profile.protocol.label} connect lands in M2',
+        '${profile.protocol.label} is not a terminal protocol',
       );
     }
     final id =
-        '${profile.id}_${DateTime.now().millisecondsSinceEpoch}_${_sessions.length}';
-    final session = SshTerminalSession(id: id, profile: profile);
+        '${profile.id}_${DateTime.now().millisecondsSinceEpoch}_${_terminals.length}';
+    final TerminalSession session = profile.protocol == HostProtocol.telnet
+        ? TelnetTerminalSession(id: id, profile: profile)
+        : SshTerminalSession(id: id, profile: profile);
+
     session.onChanged = () {
       if (!_disposed) {
         notifyListeners();
         _syncKeepAlive();
       }
     };
-    _sessions.add(session);
-    _activeId = id;
+    _terminals.add(session);
+    _activeTerminalId = id;
     notifyListeners();
     _syncKeepAlive();
 
     try {
       await session.connect();
     } catch (_) {
-      // Session remains listed with error phase so user can dismiss.
+      // Keep listed with error phase so user can dismiss.
     }
     _syncKeepAlive();
     notifyListeners();
     return session;
   }
 
+  /// Back-compat for M1 call sites.
+  Future<TerminalSession> open(HostProfile profile) => openTerminal(profile);
+
+  Future<FileBrowserSession> openFiles(HostProfile profile) async {
+    if (!profile.protocol.isFile) {
+      throw UnsupportedError(
+        '${profile.protocol.label} is not a file protocol',
+      );
+    }
+    final id =
+        'file_${profile.id}_${DateTime.now().millisecondsSinceEpoch}_${_files.length}';
+    final session = FileBrowserSession(
+      id: id,
+      profile: profile,
+      backend: FileBrowserSession.backendFor(profile),
+    );
+    session.onChanged = () {
+      if (!_disposed) {
+        notifyListeners();
+        _syncKeepAlive();
+      }
+    };
+    _files.add(session);
+    _activeFileId = id;
+    notifyListeners();
+    _syncKeepAlive();
+
+    try {
+      await session.connect();
+    } catch (_) {}
+    _syncKeepAlive();
+    notifyListeners();
+    return session;
+  }
+
   void setActive(String id) {
-    if (_sessions.any((s) => s.id == id)) {
-      _activeId = id;
+    if (_terminals.any((s) => s.id == id)) {
+      _activeTerminalId = id;
+      notifyListeners();
+    }
+  }
+
+  void setActiveFile(String id) {
+    if (_files.any((s) => s.id == id)) {
+      _activeFileId = id;
       notifyListeners();
     }
   }
 
   Future<void> close(String id) async {
-    final i = _sessions.indexWhere((s) => s.id == id);
+    final i = _terminals.indexWhere((s) => s.id == id);
     if (i < 0) return;
-    final s = _sessions.removeAt(i);
+    final s = _terminals.removeAt(i);
     await s.disconnect();
     s.dispose();
-    if (_activeId == id) {
-      _activeId = _sessions.isEmpty ? null : _sessions.last.id;
+    if (_activeTerminalId == id) {
+      _activeTerminalId = _terminals.isEmpty ? null : _terminals.last.id;
+    }
+    notifyListeners();
+    await _syncKeepAlive();
+  }
+
+  Future<void> closeFile(String id) async {
+    final i = _files.indexWhere((s) => s.id == id);
+    if (i < 0) return;
+    final s = _files.removeAt(i);
+    await s.disconnect();
+    s.dispose();
+    if (_activeFileId == id) {
+      _activeFileId = _files.isEmpty ? null : _files.last.id;
     }
     notifyListeners();
     await _syncKeepAlive();
   }
 
   Future<void> closeAll() async {
-    final copy = List<SshTerminalSession>.from(_sessions);
-    _sessions.clear();
-    _activeId = null;
+    final terms = List<TerminalSession>.from(_terminals);
+    final files = List<FileBrowserSession>.from(_files);
+    _terminals.clear();
+    _files.clear();
+    _activeTerminalId = null;
+    _activeFileId = null;
     notifyListeners();
-    for (final s in copy) {
+    for (final s in terms) {
+      await s.disconnect();
+      s.dispose();
+    }
+    for (final s in files) {
       await s.disconnect();
       s.dispose();
     }
@@ -91,22 +176,32 @@ class SessionManager extends ChangeNotifier {
   }
 
   Future<void> _syncKeepAlive() async {
-    final titles = _sessions
-        .where((s) =>
-            s.phase == SshSessionPhase.connected ||
-            s.phase == SshSessionPhase.connecting)
-        .map((s) => s.title)
-        .toList();
+    final titles = <String>[
+      ..._terminals
+          .where((s) =>
+              s.phase == SessionPhase.connected ||
+              s.phase == SessionPhase.connecting)
+          .map((s) => s.keepAliveTitle),
+      ..._files
+          .where((s) =>
+              s.phase == SessionPhase.connected ||
+              s.phase == SessionPhase.connecting)
+          .map((s) => s.keepAliveTitle),
+    ];
     await _keepalive.updateSessions(titles);
   }
 
   @override
   void dispose() {
     _disposed = true;
-    for (final s in _sessions) {
+    for (final s in _terminals) {
       s.dispose();
     }
-    _sessions.clear();
+    for (final s in _files) {
+      s.dispose();
+    }
+    _terminals.clear();
+    _files.clear();
     super.dispose();
   }
 }
@@ -114,7 +209,6 @@ class SessionManager extends ChangeNotifier {
 final sessionManagerProvider = ChangeNotifierProvider<SessionManager>((ref) {
   final keepalive = ref.watch(keepAliveControllerProvider);
   final mgr = SessionManager(keepalive);
-  // Notification "Disconnect all" → clear sessions.
   keepalive.onStopRequested = () {
     mgr.closeAll();
   };

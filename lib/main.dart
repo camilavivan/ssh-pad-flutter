@@ -40,7 +40,7 @@ class SshPadApp extends ConsumerWidget {
       debugShowCheckedModeBanner: false,
       builder: (context, child) {
         return Banner(
-          message: 'M1',
+          message: 'M2',
           location: BannerLocation.topEnd,
           child: Stack(
             children: [

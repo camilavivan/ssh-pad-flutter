@@ -4,7 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:xterm/xterm.dart';
 
 import '../../core/session/session_manager.dart';
-import '../../core/session/ssh_terminal_session.dart';
+import '../../core/session/terminal_session.dart';
+import '../../data/host_profile.dart';
+import '../files/files_page.dart';
 import 'extra_keys.dart';
 import 'hardware_keyboard_handler.dart';
 
@@ -61,6 +63,21 @@ class _TerminalPageState extends ConsumerState<TerminalPage>
     });
   }
 
+
+  Future<void> _openFiles() async {
+    final active = ref.read(sessionManagerProvider).active;
+    if (active == null) return;
+    if (active.profile.protocol != HostProtocol.ssh &&
+        active.profile.protocol != HostProtocol.sftp) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('仅 SSH/SFTP 会话可打开文件')),
+      );
+      return;
+    }
+    await openFileBrowser(context, ref, active.profile.asSftp());
+  }
+
   Future<void> _disconnectActive() async {
     final mgr = ref.read(sessionManagerProvider);
     final active = mgr.active;
@@ -102,8 +119,10 @@ class _TerminalPageState extends ConsumerState<TerminalPage>
             onSelected: (v) async {
               if (v == 'all') await _disconnectAll();
               if (v == 'ime') _clearImeComposition();
+              if (v == 'files') await _openFiles();
             },
             itemBuilder: (_) => const [
+              PopupMenuItem(value: 'files', child: Text('打开文件 (SFTP)')),
               PopupMenuItem(value: 'ime', child: Text('清除输入法组字')),
               PopupMenuItem(value: 'all', child: Text('断开全部会话')),
             ],
@@ -143,15 +162,15 @@ class _TerminalPageState extends ConsumerState<TerminalPage>
 class _StatusBanner extends StatelessWidget {
   const _StatusBanner({required this.session});
 
-  final SshTerminalSession session;
+  final TerminalSession session;
 
   @override
   Widget build(BuildContext context) {
     final (label, color) = switch (session.phase) {
-      SshSessionPhase.connecting => ('连接中…', Colors.amber),
-      SshSessionPhase.connected => ('已连接（保活中）', Colors.green),
-      SshSessionPhase.disconnected => ('已断开', Colors.grey),
-      SshSessionPhase.error => (
+      SessionPhase.connecting => ('连接中…', Colors.amber),
+      SessionPhase.connected => ('已连接（保活中）', Colors.green),
+      SessionPhase.disconnected => ('已断开', Colors.grey),
+      SessionPhase.error => (
           '错误: ${session.errorMessage ?? ""}',
           Theme.of(context).colorScheme.error,
         ),

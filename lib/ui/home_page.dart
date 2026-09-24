@@ -5,6 +5,7 @@ import '../core/session/session_manager.dart';
 import '../data/host_profile.dart';
 import '../data/host_store.dart';
 import 'host_editor.dart';
+import 'files/files_page.dart';
 import 'placeholders.dart';
 import 'terminal/terminal_page.dart';
 
@@ -40,13 +41,18 @@ class HomePage extends ConsumerWidget {
             },
           ),
           IconButton(
-            tooltip: '文件（M2）',
+            tooltip: '文件会话',
             icon: const Icon(Icons.folder_outlined),
             onPressed: () {
+              final files = ref.read(sessionManagerProvider).files;
+              if (files.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('暂无文件会话；请用 SFTP/FTP 主机连接')),
+                );
+                return;
+              }
               Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const FilesPlaceholderPage(),
-                ),
+                MaterialPageRoute(builder: (_) => const FilesPage()),
               );
             },
           ),
@@ -130,15 +136,13 @@ class HomePage extends ConsumerWidget {
       return;
     }
     if (h.protocol == HostProtocol.sftp || h.protocol == HostProtocol.ftp) {
-      await Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => const FilesPlaceholderPage()),
-      );
+      await openFileBrowser(context, ref, h);
       return;
     }
     if (h.protocol == HostProtocol.telnet) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('TELNET 将在 M2 接通；保活通道已就绪')),
-      );
+      if (!context.mounted) return;
+      _openTerminalUi(context);
+      await ref.read(sessionManagerProvider).openTerminal(h);
       return;
     }
 
@@ -147,6 +151,6 @@ class HomePage extends ConsumerWidget {
     // Navigate first so connecting output is visible.
     if (!context.mounted) return;
     _openTerminalUi(context);
-    await mgr.open(h);
+    await mgr.openTerminal(h);
   }
 }

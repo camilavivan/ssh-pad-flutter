@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:xterm/xterm.dart';
 
-import '../../core/session/ssh_terminal_session.dart';
+import '../../core/session/terminal_session.dart';
 
 /// Pad-friendly ExtraKeys strip: Esc, Tab, Ctrl (sticky), arrows, Ctrl-C.
 class ExtraKeysBar extends StatefulWidget {
@@ -13,7 +13,7 @@ class ExtraKeysBar extends StatefulWidget {
   });
 
   final Terminal terminal;
-  final SshTerminalSession? session;
+  final TerminalSession? session;
 
   @override
   State<ExtraKeysBar> createState() => _ExtraKeysBarState();

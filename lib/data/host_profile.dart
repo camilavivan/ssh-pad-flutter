@@ -1,4 +1,4 @@
-/// Host connection profile (PadSSH / ServerBox-aligned fields for M0).
+/// Host connection profile (PadSSH / ServerBox-aligned fields).
 library;
 
 enum HostProtocol {
@@ -19,6 +19,12 @@ enum HostProtocol {
 
   /// Deferred P2 protocols (show 「稍后」, disable connect).
   bool get isDeferred => !isMvp;
+
+  bool get isTerminal =>
+      this == HostProtocol.ssh || this == HostProtocol.telnet;
+
+  bool get isFile =>
+      this == HostProtocol.sftp || this == HostProtocol.ftp;
 
   String get label {
     switch (this) {
@@ -81,6 +87,7 @@ class HostProfile {
     this.privateKey,
     this.passphrase,
     this.ftpSecure = FtpSecureMode.none,
+    this.ftpPassive = true,
     this.serialDeviceId,
     this.baudRate,
     this.saveSecret = false,
@@ -97,6 +104,8 @@ class HostProfile {
   final String? privateKey;
   final String? passphrase;
   final FtpSecureMode ftpSecure;
+  /// FTP passive mode (default true — friendlier with LAN NAT).
+  final bool ftpPassive;
   final String? serialDeviceId;
   final int? baudRate;
   final bool saveSecret;
@@ -113,6 +122,7 @@ class HostProfile {
     String? privateKey,
     String? passphrase,
     FtpSecureMode? ftpSecure,
+    bool? ftpPassive,
     String? serialDeviceId,
     int? baudRate,
     bool? saveSecret,
@@ -129,11 +139,15 @@ class HostProfile {
       privateKey: privateKey ?? this.privateKey,
       passphrase: passphrase ?? this.passphrase,
       ftpSecure: ftpSecure ?? this.ftpSecure,
+      ftpPassive: ftpPassive ?? this.ftpPassive,
       serialDeviceId: serialDeviceId ?? this.serialDeviceId,
       baudRate: baudRate ?? this.baudRate,
       saveSecret: saveSecret ?? this.saveSecret,
     );
   }
+
+  /// Clone as SFTP host (for "Files" from an SSH session).
+  HostProfile asSftp() => copyWith(protocol: HostProtocol.sftp);
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -147,6 +161,7 @@ class HostProfile {
         if (privateKey != null) 'privateKey': privateKey,
         if (passphrase != null) 'passphrase': passphrase,
         'ftpSecure': ftpSecure.name,
+        'ftpPassive': ftpPassive,
         if (serialDeviceId != null) 'serialDeviceId': serialDeviceId,
         if (baudRate != null) 'baudRate': baudRate,
         'saveSecret': saveSecret,
@@ -172,6 +187,7 @@ class HostProfile {
         (e) => e.name == (json['ftpSecure'] as String? ?? 'none'),
         orElse: () => FtpSecureMode.none,
       ),
+      ftpPassive: json['ftpPassive'] as bool? ?? true,
       serialDeviceId: json['serialDeviceId'] as String?,
       baudRate: (json['baudRate'] as num?)?.toInt(),
       saveSecret: json['saveSecret'] as bool? ?? false,
