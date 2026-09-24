@@ -1,13 +1,18 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE"/>
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
-    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
+    <uses-permission
+        android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"
+        tools:ignore="BatteryLife"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
 
     <application
         android:label="SSH Pad"
@@ -32,11 +37,16 @@
             </intent-filter>
         </activity>
 
-        <!-- 保活：同进程 FGS（dataSync）+ Wake/Wifi 锁；可选弱音由设置开关。 -->
+        <!--
+          Keepalive FGS (same process as Flutter/Dart SSH).
+          mediaPlayback + weak AudioTrack is required on many CN OEMs so the
+          process is not frozen when the user switches apps. dataSync remains
+          as a secondary type. stopWithTask=false keeps service after swipe.
+        -->
         <service
             android:name=".SessionForegroundService"
             android:exported="false"
-            android:foregroundServiceType="dataSync"
+            android:foregroundServiceType="mediaPlayback|dataSync"
             android:stopWithTask="false" />
 
         <meta-data
@@ -48,7 +58,6 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
-        <!-- OEM settings packages resolved via explicit components -->
         <package android:name="com.miui.securitycenter"/>
         <package android:name="com.miui.powerkeeper"/>
         <package android:name="com.huawei.systemmanager"/>

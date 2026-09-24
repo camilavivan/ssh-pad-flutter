@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
+import android.util.Log
 import android.view.inputmethod.InputMethodManager
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -40,7 +41,9 @@ class MainActivity : FlutterActivity() {
                     val sessions = (call.argument<List<String>>("sessions")) ?: emptyList()
                     val count = call.argument<Int>("count") ?: sessions.size
                     val title = call.argument<String>("title")
-                    val weakAudio = call.argument<Boolean>("weakAudio") ?: false
+                    // Default ON: CN OEMs freeze same-process Dart without mediaPlayback audio.
+                    val weakAudio = call.argument<Boolean>("weakAudio") ?: true
+                    Log.i(TAG, "updateSessions count=$count weakAudio=$weakAudio title=$title")
                     if (count > 0 || sessions.isNotEmpty()) {
                         SessionForegroundService.start(this, sessions, title, weakAudio)
                     } else {
@@ -48,9 +51,16 @@ class MainActivity : FlutterActivity() {
                     }
                     result.success(null)
                 }
+                "ensureKeepAlive" -> {
+                    SessionForegroundService.ensure(this)
+                    result.success(null)
+                }
                 "requestIgnoreBatteryOptimizations" -> {
                     requestIgnoreBattery()
                     result.success(null)
+                }
+                "isIgnoringBatteryOptimizations" -> {
+                    result.success(isIgnoringBattery())
                 }
                 "openOemAutostartSettings" -> {
                     KeepAliveOem.openVendorKeepAlive(this)
@@ -58,6 +68,15 @@ class MainActivity : FlutterActivity() {
                 }
                 "requestNotificationPermission" -> {
                     result.success(requestNotifications())
+                }
+                "openOverlayPermissionSettings" -> {
+                    openOverlaySettings()
+                    result.success(null)
+                }
+                "canDrawOverlays" -> {
+                    result.success(
+                        if (Build.VERSION.SDK_INT >= 23) Settings.canDrawOverlays(this) else true,
+                    )
                 }
                 else -> result.notImplemented()
             }
@@ -76,6 +95,13 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        // Home / recent-apps: re-ensure FGS while still in a privileged state.
+        Log.i(TAG, "onUserLeaveHint — ensure FGS")
+        SessionForegroundService.ensure(this)
     }
 
     /** Clear IME composition by restarting the current input connection. */
@@ -115,20 +141,48 @@ class MainActivity : FlutterActivity() {
         return false
     }
 
+    private fun isIgnoringBattery(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return true
+        val pm = getSystemService(POWER_SERVICE) as PowerManager
+        return pm.isIgnoringBatteryOptimizations(packageName)
+    }
+
     private fun requestIgnoreBattery() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
-        val pm = getSystemService(POWER_SERVICE) as PowerManager
-        if (pm.isIgnoringBatteryOptimizations(packageName)) return
+        if (isIgnoringBattery()) return
         try {
             val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
                 data = Uri.parse("package:$packageName")
             }
             startActivity(intent)
+            Log.i(TAG, "requested ignore battery optimizations")
         } catch (_: Exception) {
             try {
                 startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
             } catch (_: Exception) {
             }
         }
+    }
+
+    private fun openOverlaySettings() {
+        try {
+            val intent = Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:$packageName"),
+            )
+            startActivity(intent)
+        } catch (_: Exception) {
+            try {
+                startActivity(
+                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                        .setData(Uri.parse("package:$packageName")),
+                )
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    companion object {
+        private const val TAG = "SshPadMain"
     }
 }

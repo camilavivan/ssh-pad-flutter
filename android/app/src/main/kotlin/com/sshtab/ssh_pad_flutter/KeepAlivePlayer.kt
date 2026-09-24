@@ -4,16 +4,18 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
 import android.os.Process
+import android.util.Log
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 import kotlin.math.PI
 import kotlin.math.sin
 
 /**
- * Optional weak silent mediaPlayback path for aggressive CN OEMs.
+ * Weak near-silent mediaPlayback path for aggressive CN OEMs.
  *
- * No MediaSession (avoids media controls killing the process).
- * Default OFF — gate from Dart settings; evaluate Play policy before shipping on.
+ * No MediaSession (avoids media controls / pause killing the process).
+ * Writes an inaudible ~18Hz sine so OEMs do not treat the track as muted silence.
+ * Default ON from Dart for CN keepalive reliability.
  */
 class KeepAlivePlayer {
     private var track: AudioTrack? = null
@@ -56,7 +58,8 @@ class KeepAlivePlayer {
             running.set(true)
             track = t
             t.play()
-            writer = thread(name = "sshpad-keepalive-audio", isDaemon = true) {
+            // Non-daemon: do not let the process exit while audio is the keepalive signal.
+            writer = thread(name = "sshpad-keepalive-audio", isDaemon = false) {
                 Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO)
                 while (running.get()) {
                     try {
@@ -66,7 +69,9 @@ class KeepAlivePlayer {
                     }
                 }
             }
-        } catch (_: Exception) {
+            Log.i(TAG, "audiotrack started state=${t.playState} no-media-session")
+        } catch (t: Exception) {
+            Log.e(TAG, "audiotrack failed: ${t.javaClass.simpleName}: ${t.message}")
             stop()
         }
     }
@@ -87,5 +92,9 @@ class KeepAlivePlayer {
         } catch (_: Exception) {
         }
         track = null
+    }
+
+    companion object {
+        private const val TAG = "SshPadAudio"
     }
 }

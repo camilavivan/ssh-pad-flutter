@@ -10,7 +10,7 @@ Pad 优先的 Flutter SSH / Telnet / SFTP / FTP 终端客户端。
 - **Pad 优先 UI**：宽屏（≥600dp）左栏节点/会话 + 可拖分割条 + 右栏终端/文件；窄屏 NavigationRail。
 - **外接 / 蓝牙键盘**：`configChanges` 含 keyboard；Ctrl-C = SIGINT；resume 清 IME 组字；插拔/旋转 refit PTY。
 - **首发协议**：SSH、SFTP、TELNET、FTP；主机档案含 `protocol` 字段。
-- **保活是重中之重**：切应用/熄屏不断开；同进程 ForegroundService（`dataSync`）+ Wake/Wifi 锁 + OEM 引导；默认**不**无限静默自动重连。
+- **保活是重中之重**：切应用/熄屏不断开；同进程 ForegroundService（`mediaPlayback|dataSync`）+ 默认弱音 AudioTrack + Wake/Wifi 锁 + 首次连接电池白名单 + OEM 引导；默认**不**无限静默自动重连。
 - 延后：SERIAL / LOCAL / RLOGIN（选择器可见，标注「稍后」）。
 
 完整计划见 [`docs/rewrite-plan.md`](docs/rewrite-plan.md)。
@@ -39,7 +39,7 @@ Pad 优先的 Flutter SSH / Telnet / SFTP / FTP 终端客户端。
 | FTP | ftpconnect |
 | 持久化 | shared_preferences |
 | 唤醒 | wakelock_plus |
-| 保活 | 自写 Android FGS + MethodChannel |
+| 保活 | 自写 Android FGS（mediaPlayback\|dataSync）+ 弱音 + MethodChannel |
 
 ## 里程碑（保活提前）
 
@@ -113,3 +113,23 @@ flutter build apk --release
 ```
 
 若未配置 `key.properties`，release 仍可用 Android debug 签名构建（仅供内测）。用户可用自己的密钥重新签名后再分发。
+
+
+## 保活自测（v0.5.1+）
+
+1. 安装 release APK，授予**通知权限**。
+2. 连接一台 SSH 主机；应立刻看到「SSH Pad 会话保活」通知。
+3. 按 Home / 切到其他应用，等待 **2–5 分钟**，再返回：会话应仍在，终端可继续输入。
+4. `adb logcat -s SshPadFGS SshPadAudio SshPadMain` 应能看到 `startForeground mediaPlayback|dataSync ok` 与 `weak audio started`。
+
+### 国行 OEM 建议（若仍被冻）
+
+| 厂商 | 设置 |
+|------|------|
+| 小米/红米 | 自启动 = 允许；省电策略 = 无限制；锁屏清理白名单 |
+| 华为/荣耀 | 启动管理 = 手动管理全开；后台活动 = 允许 |
+| OPPO/一加/realme | 耗电管理 = 允许后台；自启动 = 允许 |
+| vivo/iQOO | 后台高耗电 = 允许；自启动 = 允许 |
+| 通用 | 忽略电池优化；可选开启悬浮窗 |
+
+弱音保活默认开启（设置里可关）。关闭后多数国行会在切应用后很快冻死同进程 Dart SSH。
