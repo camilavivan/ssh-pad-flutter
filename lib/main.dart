@@ -9,6 +9,7 @@ import 'core/security/host_key_verifier.dart';
 import 'core/ssh/ssh_connector.dart';
 import 'data/host_store.dart';
 import 'ui/keyboard/app_escape_policy.dart';
+import 'ui/keyboard/root_back_guard.dart';
 import 'ui/pad/pad_shell.dart';
 import 'ui/security/host_key_dialog.dart';
 import 'ui/theme.dart';
@@ -81,8 +82,14 @@ class _SshPadAppState extends ConsumerState<SshPadApp> {
       actions: AppEscapePolicy.actionsWithoutEscapeBack(
         Map<Type, Action<Intent>>.of(WidgetsApp.defaultActions),
       ),
-      home: const PadShell(),
+      // Root Back/Esc remapped to BACK must not finish the Activity (OEM
+      // tablets). Nested routes still pop normally; only the shell is guarded.
+      home: RootBackGuard(
+        navigatorKey: navigatorKey,
+        child: const PadShell(),
+      ),
       debugShowCheckedModeBanner: false,
     );
   }
 }
+

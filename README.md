@@ -50,7 +50,8 @@ Pad 优先的 Flutter SSH / Telnet / SFTP / FTP 终端客户端。
 7. **v0.5.3** — 连接共享（多 shell + SFTP 同会话）
 8. **v0.5.4** — 主机卡片资源状态（CPU / MEM / NET / DISK，共享 SSH exec）
 9. **v0.5.5** — 硬件 Esc 全局策略（永不作 Back；终端发 0x1b）
-10. **v0.5.6** — Esc / 硬件键盘打磨版（overlay 优先、Ctrl+[、分栏无焦点）← 当前
+10. **v0.5.6** — Esc / 硬件键盘打磨版（overlay 优先、Ctrl+[、分栏无焦点）
+11. **v0.5.7** — OEM Esc→BACK 重映射修复（OnePlus Pad Ace 2 Pro / ColorOS；scanCode 1/158）← 当前
 
 ## Pad 布局与键盘（M3）
 
@@ -60,6 +61,7 @@ Pad 优先的 Flutter SSH / Telnet / SFTP / FTP 终端客户端。
 - **键盘**：
   - Manifest `configChanges` 已含 `keyboard|keyboardHidden|navigation`（插拔不重建 Activity）。
   - **Esc 全局策略**：整个 App 内硬件 Esc **绝不**当作 Flutter/Android Back；`DismissIntent` shortcut + action 双保险；仅可关闭 barrierDismissible 浮层（菜单优先于终端）；终端会话活跃且非文本框焦点时发 `0x1b` 到 PTY（含 Pad 分栏终端可见但未聚焦）；**Ctrl+[** → Esc（vi）；系统返回键/手势仍可导航。
+  - **OEM Esc→BACK 重映射（v0.5.7）**：国行平板外接键盘常把物理 Esc 报成 `KEYCODE_BACK`。Android 侧 `MainActivity` 识别 Linux scanCode **1**（KEY_ESC，小米系）与 **158**（KEY_BACK，一加 Pad Ace / ColorOS 常见）+ `SOURCE_KEYBOARD` 非虚拟设备，改写为 `KEYCODE_ESCAPE` 并消费，避免 ColorOS `finish()` 退桌面并掐断 SSH。根路由另有 `PopScope(canPop: false)` 兜底，Back 不退出 Activity；嵌套路由仍可 pop。真·软键/手势 Back（scanCode 0）不受影响。调试：`adb logcat -s SshPadMain` 可见 `physical Esc rewrite …`。
   - `HardwareKeyboard`：**Ctrl-C → SIGINT**（非复制；复制为 Ctrl+Shift+C）。Esc / Ctrl+[ 由 `AppEscapePolicy` 单路径发送，避免与 TerminalView 双发。
   - Resume / 可见性：unfocus→`InputMethodManager.restartInput`→focus，清 IME 组字。
   - Metrics 变化：重建 fit 行列并触发 PTY `resize`。
@@ -105,7 +107,7 @@ flutter run   # 需连接设备 / 模拟器
 - **安全密钥存储**：密码 / 私钥 / 口令经 `flutter_secure_storage` 保存；SharedPreferences 仅存主机元数据；启动时迁移旧明文。
 - **双栏文件浏览器**：宽屏（≥600dp）左本地 / 右远程，支持上传、下载、远程 mkdir/删除；窄屏可切换显示本地栏。
 - **会话日志**：设置页可查看近期连接 / 密钥 / 文件操作事件。
-- **安装**：从 [GitHub Releases](https://github.com/camilavivan/ssh-pad-flutter/releases) 下载 APK（`v0.5.0-m5`）。
+- **安装**：从 [GitHub Releases](https://github.com/camilavivan/ssh-pad-flutter/releases) 下载 APK（`v0.5.7`）。
 
 ### 自行签名发版
 
@@ -131,17 +133,18 @@ flutter build apk --release
 若未配置 `key.properties`，release 仍可用 Android debug 签名构建（仅供内测）。用户可用自己的密钥重新签名后再分发。
 
 
-## 硬件 Esc 自测清单（v0.5.6 打磨版）
+## 硬件 Esc 自测清单（v0.5.7 / OEM 重映射）
 
-1. 外接 / 蓝牙键盘连接 SSH，打开 `vi` / `vim`，`i` 进插入模式 → **Esc** 退回正常模式，**不得**退出 App / 切走终端。
-2. 同上，试 **Ctrl+[**：应等同 Esc（退插入模式），且只生效一次（无双 Esc）。
-3. 主机列表 / 设置 / 文件页按 Esc：界面保持，不得 `Navigator.pop` / 退桌面。
-4. 打开终端溢出菜单（⋯）按 Esc：仅关闭菜单，不离开终端、不杀会话。
-5. TOFU 主机密钥对话框（不可点遮罩关闭）：Esc **不得**误关 / 误拒绝；需点按钮。
-6. Pad 分栏：终端在右侧可见，焦点在左侧主机列表时按 Esc：应送到 PTY（vi 仍可退模式），不得 Back。
-7. 主机编辑页（TextField 焦点）按 Esc：不得注入后台 PTY，也不得 pop 编辑页。
-8. 系统返回键或手势返回：仍可按原 UX 离开或切 pane。
-9. ExtraKeys 点 Esc：照常发 `0x1b`（软键路径与硬件策略独立）。
+1. 外接 / 蓝牙键盘连接 SSH，打开 `vi` / `vim`，`i` 进插入模式 → **Esc** 退回正常模式，**不得**退出 App / 切走终端 / 断开会话。
+2. **OnePlus Pad Ace 2 Pro（ColorOS）**：物理 Esc 不得退到桌面；PTY 应收到单个 `0x1b`。若仍异常，抓 `adb logcat -s SshPadMain` 看 `physical Esc rewrite keyCode=… scanCode=…`（预期 scanCode `1` 或 `158`）。
+3. 同上，试 **Ctrl+[**：应等同 Esc（退插入模式），且只生效一次（无双 Esc）。
+4. 主机列表 / 设置 / 文件页按 Esc：界面保持，不得 `Navigator.pop` / 退桌面。
+5. 打开终端溢出菜单（⋯）按 Esc：仅关闭菜单，不离开终端、不杀会话。
+6. TOFU 主机密钥对话框（不可点遮罩关闭）：Esc **不得**误关 / 误拒绝；需点按钮。
+7. Pad 分栏：终端在右侧可见，焦点在左侧主机列表时按 Esc：应送到 PTY（vi 仍可退模式），不得 Back。
+8. 主机编辑页（TextField 焦点）按 Esc：不得注入后台 PTY，也不得 pop 编辑页；系统 Back / 手势仍可 pop 编辑页。
+9. 系统返回键或手势返回：嵌套路由可 pop；**根路由 Back 不得 finish Activity**（会话应仍活着；可用 Home 键正常回桌面）。
+10. ExtraKeys 点 Esc：照常发 `0x1b`（软键路径与硬件策略独立）。
 
 ## 保活自测（v0.5.1+）
 
