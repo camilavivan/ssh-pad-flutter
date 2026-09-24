@@ -178,14 +178,17 @@ class HostStore {
     await _persistMetadata(all);
   }
 
+  /// Always try secure storage so reconnect / 2nd shell gets credentials
+  /// even if the in-memory [HostProfile] was stripped of secrets.
   Future<HostProfile> withSecrets(HostProfile host) async {
-    if (!host.saveSecret) return host;
     final s = await _secrets.readSecrets(host.id);
+    String? pick(String? stored, String? mem) =>
+        (stored != null && stored.isNotEmpty) ? stored : mem;
     return _withSecrets(
       host,
-      password: s.password ?? host.password,
-      privateKey: s.privateKey ?? host.privateKey,
-      passphrase: s.passphrase ?? host.passphrase,
+      password: pick(s.password, host.password),
+      privateKey: pick(s.privateKey, host.privateKey),
+      passphrase: pick(s.passphrase, host.passphrase),
     );
   }
 }

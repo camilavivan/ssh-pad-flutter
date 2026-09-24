@@ -31,7 +31,7 @@ Pad 优先的 Flutter SSH / Telnet / SFTP / FTP 终端客户端。
 |----|------|
 | Flutter | stable（本机以 `flutter --version` 为准） |
 | 状态 | Riverpod |
-| SSH/SFTP | dartssh2 |
+| SSH/SFTP | dartssh2（每主机共享一个 `SSHClient`；多终端=多 shell；Files=`client.sftp()`） |
 | 终端 | xterm |
 | Telnet | ctelnet |
 | FTP | ftpconnect |
@@ -46,7 +46,8 @@ Pad 优先的 Flutter SSH / Telnet / SFTP / FTP 终端客户端。
 3. **M1b** — **保活 FGS 完整接通（关键路径）**
 4. **M2** — SFTP / TELNET / FTP
 5. **M3** — Pad 布局 / 键盘打磨
-6. **M5** — 发版打磨 ← 当前
+6. **M5** — 发版打磨
+7. **v0.5.3** — 连接共享（多 shell + SFTP 同会话）← 当前
 
 ## Pad 布局与键盘（M3）
 

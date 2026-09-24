@@ -126,13 +126,7 @@ class LeftPane extends ConsumerWidget {
                     onDelete: () =>
                         ref.read(hostListProvider.notifier).delete(h.id),
                     onCloseSession: () async {
-                      final id = _sessionIdForHost(mgr, h);
-                      if (id != null) await mgr.close(id);
-                      for (final f in mgr.files) {
-                        if (f.profile.id == h.id) {
-                          await mgr.closeFile(f.id);
-                        }
-                      }
+                      await mgr.disconnectHost(h.id);
                     },
                   ),
                   const SizedBox(height: 4),
@@ -228,12 +222,6 @@ class LeftPane extends ConsumerWidget {
     return null;
   }
 
-  static String? _sessionIdForHost(SessionManager mgr, HostProfile h) {
-    for (final s in mgr.sessions) {
-      if (s.profile.id == h.id) return s.id;
-    }
-    return null;
-  }
 
   static bool _isSelected(SessionManager mgr, HostProfile h) {
     final a = mgr.active;

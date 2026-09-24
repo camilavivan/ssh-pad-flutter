@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/session/session_backend.dart';
 import '../../core/session/session_manager.dart';
 import '../../data/host_profile.dart';
 import '../../data/host_store.dart';
@@ -76,13 +77,23 @@ class _PadShellState extends ConsumerState<PadShell> {
       return;
     }
     setState(() => _section = PadSection.files);
-    // Reuse existing file session for this host if any; else open.
-    final existing = mgr.files.where((f) => f.profile.id == active.profile.id);
-    if (existing.isEmpty) {
-      await mgr.openFiles(active.profile.asSftp());
-    } else {
-      mgr.setActiveFile(existing.first.id);
+    // Attaches SFTP channel on the existing SSHClient (no second auth).
+    await mgr.openFiles(active.profile);
+  }
+
+  /// When user switches to Files while an SSH shell is up, attach SFTP
+  /// on the shared connection instead of showing an empty stub.
+  Future<void> _ensureFilesForActiveSsh() async {
+    final mgr = ref.read(sessionManagerProvider);
+    if (mgr.files.isNotEmpty) return;
+    final active = mgr.active;
+    if (active == null) return;
+    if (active.profile.protocol != HostProtocol.ssh) return;
+    if (active.phase != SessionPhase.connected &&
+        active.phase != SessionPhase.connecting) {
+      return;
     }
+    await mgr.openFiles(active.profile);
   }
 
   Widget _rightContent() {
@@ -95,6 +106,10 @@ class _PadShellState extends ConsumerState<PadShell> {
       case PadSection.files:
         final mgr = ref.watch(sessionManagerProvider);
         if (mgr.files.isEmpty) {
+          // Kick off attach if an SSH shell is already connected.
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _ensureFilesForActiveSsh();
+          });
           return Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -105,7 +120,7 @@ class _PadShellState extends ConsumerState<PadShell> {
                 const Text('暂无文件会话', style: TextStyle(fontWeight: FontWeight.w600)),
                 const SizedBox(height: 4),
                 Text(
-                  '用 SFTP/FTP 主机连接，或从终端打开文件',
+                  '用 SFTP/FTP 主机连接，或从已连接的 SSH 打开文件',
                   style: Theme.of(context).textTheme.bodySmall,
                   textAlign: TextAlign.center,
                 ),

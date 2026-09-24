@@ -6,18 +6,21 @@ import 'package:flutter/foundation.dart';
 import 'package:xterm/xterm.dart';
 
 import '../../data/host_profile.dart';
-import '../ssh/ssh_connector.dart';
+import '../ssh/ssh_connection_hub.dart';
 import 'terminal_factory.dart';
 import 'terminal_session.dart';
 
 /// One SSH PTY shell bound to an [xterm] [Terminal].
 ///
-/// Keepalive uses dartssh2 [SSHClient.keepAliveInterval] (~8s, JSch-like).
-/// No aggressive auto-reconnect — disconnect is user-driven or process death.
+/// Uses [SshConnectionHub] so multiple tabs + SFTP share one [SSHClient].
+/// Keepalive uses dartssh2 [SSHClient.keepAliveInterval] (~8s). Closing this
+/// shell releases a hub ref; the TCP connection stays up while other shells
+/// or SFTP still hold the host.
 class SshTerminalSession implements TerminalSession {
   SshTerminalSession({
     required this.id,
     required this.profile,
+    required this._hub,
     Terminal? terminal,
   }) : terminal = terminal ?? createPadTerminal();
 
@@ -28,10 +31,12 @@ class SshTerminalSession implements TerminalSession {
   @override
   final Terminal terminal;
 
-  SSHClient? _client;
+  final SshConnectionHub _hub;
+
   SSHSession? _shell;
   StreamSubscription<Uint8List>? _stdoutSub;
   StreamSubscription<Uint8List>? _stderrSub;
+  bool _retained = false;
 
   @override
   SessionPhase phase = SessionPhase.connecting;
@@ -53,11 +58,6 @@ class SshTerminalSession implements TerminalSession {
   @override
   String get keepAliveTitle => '${profile.protocol.label} $title';
 
-
-
-
-
-
   @override
   Future<void> connect() async {
     phase = SessionPhase.connecting;
@@ -66,8 +66,9 @@ class SshTerminalSession implements TerminalSession {
     terminal.write('\r\n* Connecting to ${profile.host}:${profile.port}…\r\n');
 
     try {
-      final client = await SshConnector.connect(profile);
-      _client = client;
+      final client = await _hub.ensureClient(profile);
+      _hub.retainShell(profile.id);
+      _retained = true;
 
       final shell = await client.shell(
         pty: SSHPtyConfig(
@@ -152,12 +153,14 @@ class SshTerminalSession implements TerminalSession {
       _shell?.close();
     } catch (_) {}
     _shell = null;
-    try {
-      _client?.close();
-    } catch (_) {}
-    _client = null;
     terminal.onOutput = null;
     terminal.onResize = null;
+
+    if (_retained) {
+      _retained = false;
+      await _hub.releaseShell(profile.id);
+    }
+
     if (!silent && phase != SessionPhase.error) {
       phase = SessionPhase.disconnected;
       _notify();

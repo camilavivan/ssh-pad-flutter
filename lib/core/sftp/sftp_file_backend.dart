@@ -4,29 +4,55 @@ import 'package:dartssh2/dartssh2.dart';
 
 import '../../data/host_profile.dart';
 import '../session/file_backend.dart';
+import '../ssh/ssh_connection_hub.dart';
 import '../ssh/ssh_connector.dart';
 
-/// SFTP via dartssh2 [SftpClient]. Auth matches SSH [HostProfile].
+/// SFTP via dartssh2 [SftpClient].
+///
+/// Prefer a [SshConnectionHub] so Files attaches to an existing SSH session
+/// (`client.sftp()`) instead of opening a second TCP+auth. Without a hub
+/// (tests / edge), falls back to a dedicated [SshConnector] connection.
 class SftpFileBackend implements FileBackend {
-  SftpFileBackend(this.profile);
+  SftpFileBackend(
+    this.profile, {
+    this._hub,
+  });
 
   final HostProfile profile;
-  SSHClient? _client;
+  final SshConnectionHub? _hub;
+
   SftpClient? _sftp;
   String _cwd = '.';
+  bool _retained = false;
+  /// Owned client when connected without a hub (must close on disconnect).
+  SSHClient? _ownedClient;
 
   @override
   String get currentPath => _cwd;
 
   @override
   Future<void> connect() async {
-    final client = await SshConnector.connect(profile);
-    _client = client;
-    _sftp = await client.sftp();
+    final hub = _hub;
+    late final SSHClient client;
     try {
-      _cwd = await _sftp!.absolute('.');
+      if (hub != null) {
+        client = await hub.ensureClient(profile);
+        hub.retainSftp(profile.id);
+        _retained = true;
+      } else {
+        client = await SshConnector.connect(profile);
+        _ownedClient = client;
+      }
+
+      _sftp = await client.sftp();
+      try {
+        _cwd = await _sftp!.absolute('.');
+      } catch (_) {
+        _cwd = '/';
+      }
     } catch (_) {
-      _cwd = '/';
+      await disconnect();
+      rethrow;
     }
   }
 
@@ -144,10 +170,17 @@ class SftpFileBackend implements FileBackend {
 
   @override
   Future<void> disconnect() async {
-    try {
-      _sftp = null;
-      _client?.close();
-    } catch (_) {}
-    _client = null;
+    _sftp = null;
+    if (_retained) {
+      _retained = false;
+      await _hub?.releaseSftp(profile.id);
+    }
+    final owned = _ownedClient;
+    _ownedClient = null;
+    if (owned != null) {
+      try {
+        owned.close();
+      } catch (_) {}
+    }
   }
 }

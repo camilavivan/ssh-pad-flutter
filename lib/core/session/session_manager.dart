@@ -2,17 +2,31 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/host_profile.dart';
+import '../../data/host_store.dart';
 import '../keepalive/keepalive_controller.dart';
+import '../ssh/ssh_connection_hub.dart';
 import '../telnet/telnet_terminal_session.dart';
 import 'file_browser_session.dart';
+import 'session_log.dart';
 import 'ssh_terminal_session.dart';
 import 'terminal_session.dart';
 
 /// Multi-session hub: SSH/Telnet terminals + SFTP/FTP browsers; syncs FGS.
+///
+/// SSH hosts share one [SSHClient] via [SshConnectionHub]: extra terminal
+/// tabs open shell channels; Files opens `client.sftp()` on the same client.
 class SessionManager extends ChangeNotifier {
-  SessionManager(this._keepalive);
+  SessionManager(
+    this._keepalive, {
+    this._hostStore,
+  }) : sshHub = SshConnectionHub();
 
   final KeepAliveController _keepalive;
+  final HostStore? _hostStore;
+
+  /// Shared SSH transports keyed by host profile id.
+  final SshConnectionHub sshHub;
+
   final List<TerminalSession> _terminals = [];
   final List<FileBrowserSession> _files = [];
   String? _activeTerminalId;
@@ -48,17 +62,34 @@ class SessionManager extends ChangeNotifier {
     return _files.last;
   }
 
+  /// Reload password/key from secure storage every connect attempt.
+  Future<HostProfile> _withFreshSecrets(HostProfile profile) async {
+    final store = _hostStore;
+    if (store == null) return profile;
+    try {
+      return await store.withSecrets(profile);
+    } catch (e, st) {
+      debugPrint('withSecrets failed: $e\n$st');
+      sessionLog.add(
+        'Secret reload failed: $e',
+        level: SessionLogLevel.warn,
+      );
+      return profile;
+    }
+  }
+
   Future<TerminalSession> openTerminal(HostProfile profile) async {
     if (!profile.protocol.isTerminal) {
       throw UnsupportedError(
         '${profile.protocol.label} is not a terminal protocol',
       );
     }
+    final hydrated = await _withFreshSecrets(profile);
     final id =
-        '${profile.id}_${DateTime.now().millisecondsSinceEpoch}_${_terminals.length}';
-    final TerminalSession session = profile.protocol == HostProtocol.telnet
-        ? TelnetTerminalSession(id: id, profile: profile)
-        : SshTerminalSession(id: id, profile: profile);
+        '${hydrated.id}_${DateTime.now().millisecondsSinceEpoch}_${_terminals.length}';
+    final TerminalSession session = hydrated.protocol == HostProtocol.telnet
+        ? TelnetTerminalSession(id: id, profile: hydrated)
+        : SshTerminalSession(id: id, profile: hydrated, hub: sshHub);
 
     session.onChanged = () {
       if (!_disposed) {
@@ -85,17 +116,39 @@ class SessionManager extends ChangeNotifier {
   Future<TerminalSession> open(HostProfile profile) => openTerminal(profile);
 
   Future<FileBrowserSession> openFiles(HostProfile profile) async {
-    if (!profile.protocol.isFile) {
+    // Opening Files from an SSH terminal flips protocol to SFTP but keeps id.
+    final asFile = profile.protocol.isFile
+        ? profile
+        : profile.protocol == HostProtocol.ssh
+            ? profile.asSftp()
+            : profile;
+    if (!asFile.protocol.isFile) {
       throw UnsupportedError(
         '${profile.protocol.label} is not a file protocol',
       );
     }
+
+    // Reuse an existing file session for this host.
+    for (final f in _files) {
+      if (f.profile.id == asFile.id &&
+          (f.phase == SessionPhase.connected ||
+              f.phase == SessionPhase.connecting)) {
+        _activeFileId = f.id;
+        notifyListeners();
+        return f;
+      }
+    }
+
+    final hydrated = await _withFreshSecrets(asFile);
     final id =
-        'file_${profile.id}_${DateTime.now().millisecondsSinceEpoch}_${_files.length}';
+        'file_${hydrated.id}_${DateTime.now().millisecondsSinceEpoch}_${_files.length}';
     final session = FileBrowserSession(
       id: id,
-      profile: profile,
-      backend: FileBrowserSession.backendFor(profile),
+      profile: hydrated,
+      backend: FileBrowserSession.backendFor(
+        hydrated,
+        sshHub: hydrated.protocol == HostProtocol.sftp ? sshHub : null,
+      ),
     );
     session.onChanged = () {
       if (!_disposed) {
@@ -156,6 +209,28 @@ class SessionManager extends ChangeNotifier {
     await _syncKeepAlive();
   }
 
+  /// Disconnect every terminal + file session for [hostId], then tear down
+  /// the shared SSH transport.
+  Future<void> disconnectHost(String hostId) async {
+    final termIds = _terminals
+        .where((s) => s.profile.id == hostId)
+        .map((s) => s.id)
+        .toList();
+    final fileIds = _files
+        .where((s) => s.profile.id == hostId)
+        .map((s) => s.id)
+        .toList();
+    for (final id in termIds) {
+      await close(id);
+    }
+    for (final id in fileIds) {
+      await closeFile(id);
+    }
+    await sshHub.disconnect(hostId);
+    notifyListeners();
+    await _syncKeepAlive();
+  }
+
   Future<void> closeAll() async {
     final terms = List<TerminalSession>.from(_terminals);
     final files = List<FileBrowserSession>.from(_files);
@@ -172,6 +247,7 @@ class SessionManager extends ChangeNotifier {
       await s.disconnect();
       s.dispose();
     }
+    await sshHub.disconnectAll();
     await _syncKeepAlive();
   }
 
@@ -202,13 +278,16 @@ class SessionManager extends ChangeNotifier {
     }
     _terminals.clear();
     _files.clear();
+    // Fire-and-forget; dispose cannot await.
+    sshHub.disconnectAll();
     super.dispose();
   }
 }
 
 final sessionManagerProvider = ChangeNotifierProvider<SessionManager>((ref) {
   final keepalive = ref.watch(keepAliveControllerProvider);
-  final mgr = SessionManager(keepalive);
+  final hostStore = ref.watch(hostStoreProvider);
+  final mgr = SessionManager(keepalive, hostStore: hostStore);
   keepalive.onStopRequested = () {
     mgr.closeAll();
   };

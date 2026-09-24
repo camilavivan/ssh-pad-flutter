@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../../data/host_profile.dart';
 import '../ftp/ftp_file_backend.dart';
 import '../sftp/sftp_file_backend.dart';
+import '../ssh/ssh_connection_hub.dart';
 import 'file_backend.dart';
 import 'session_backend.dart';
 
@@ -33,10 +34,13 @@ class FileBrowserSession {
 
   String get keepAliveTitle => '${profile.protocol.label} $title';
 
-  static FileBackend backendFor(HostProfile profile) {
+  static FileBackend backendFor(
+    HostProfile profile, {
+    SshConnectionHub? sshHub,
+  }) {
     switch (profile.protocol) {
       case HostProtocol.sftp:
-        return SftpFileBackend(profile);
+        return SftpFileBackend(profile, hub: sshHub);
       case HostProtocol.ftp:
         return FtpFileBackend(profile);
       default:
@@ -55,6 +59,9 @@ class FileBrowserSession {
       phase = SessionPhase.connected;
       onChanged?.call();
     } catch (e) {
+      try {
+        await backend.disconnect();
+      } catch (_) {}
       phase = SessionPhase.error;
       errorMessage = e.toString();
       onChanged?.call();
